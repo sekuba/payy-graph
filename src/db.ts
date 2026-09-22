@@ -99,6 +99,7 @@ const SCHEMA = `
 export function openDb(path: string): Db {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
+  db.exec('pragma busy_timeout = 5000') // sync and serve share the file
   db.exec('pragma journal_mode = wal')
   db.exec('pragma synchronous = normal')
   db.exec(SCHEMA)

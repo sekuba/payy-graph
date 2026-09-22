@@ -58,6 +58,7 @@ cp .env.example .env        # set ETHEREUM_RPC_URL and POLYGON_RPC_URL
 pnpm sync                   # full history, then exits; --follow keeps tailing
 pnpm serve                  # API on :3020, serves dist/web when built
 pnpm web                    # dev UI on :5173, proxies /api to :3020
+pnpm dev:all                # all three above in one terminal (sync --follow, serve, web)
 pnpm dev trace <address>    # command line: deposits behind each withdrawal
 pnpm dev check              # consistency checks
 pnpm dev export graph.jsonl # the whole history as public inputs, one tx per line
@@ -66,7 +67,9 @@ pnpm check                  # typecheck, lint, tests
 ```
 
 For production, `pnpm build` writes the server to `dist/` and the UI to
-`dist/web/`; `pnpm start` serves both from one process.
+`dist/web/`. `pnpm start` then runs `sync --follow` and `serve` together (the
+UI is static files served by `serve`, so no third process); `pnpm start:serve`
+runs the server alone if the sync lives elsewhere.
 
 The first sync downloads about 1.5 million transactions from the public Payy
 node at roughly 100 per second; the L1 events take a few minutes over RPC.

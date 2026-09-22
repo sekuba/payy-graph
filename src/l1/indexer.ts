@@ -1,4 +1,4 @@
-import { type Db, getSync, setSync, transaction } from '../db'
+import { type Db, getSync, one, setSync, transaction } from '../db'
 import { log, sleep } from '../log'
 import { type ChainInfo, TOPICS } from '../protocol'
 import {
@@ -17,6 +17,12 @@ const CHUNK_BLOCKS: Record<string, number> = {
 }
 /** Distance between sampled block timestamps used for interpolation */
 const TIME_ANCHOR_BLOCKS = 2_000
+/**
+ * How often follow mode looks for new confirmed blocks. Both chains already
+ * lag by their confirmation depth, so two minutes adds little delay and
+ * keeps the RPC request count low.
+ */
+const FOLLOW_POLL_MS = 120_000
 
 /**
  * Indexes the Rollup's deposits, withdrawals and state updates on one chain.
@@ -37,7 +43,7 @@ export async function syncChain(
     const head = (await rpc.getBlockNumber()) - chain.confirmations
     if (from > head) {
       if (!options.follow) break
-      await sleep(30_000)
+      await sleep(FOLLOW_POLL_MS)
       continue
     }
     const to = Math.min(from + chunk - 1, head)
@@ -155,7 +161,9 @@ async function indexRange(
  * Fetches timestamps for every TIME_ANCHOR_BLOCKS-th block of the range plus
  * both ends, stores them, and returns a linear interpolation function. This
  * dates events to within seconds on Ethereum and about a minute on Polygon,
- * at a tiny fraction of the cost of fetching every block.
+ * at a tiny fraction of the cost of fetching every block. The block just
+ * before the range is the previous range's end, whose time is already stored,
+ * so it serves as the lower anchor without another request.
  */
 async function blockTimes(
   db: Db,
@@ -164,7 +172,13 @@ async function blockTimes(
   from: number,
   to: number,
 ): Promise<(block: number) => number> {
-  const wanted: number[] = [from]
+  const stored = one<{ block: number; time: number }>(
+    db,
+    'select block, time from block_time where chain = ? and block = ?',
+    chain.id,
+    from - 1,
+  )
+  const wanted: number[] = stored ? [] : [from]
   for (
     let b = Math.ceil(from / TIME_ANCHOR_BLOCKS) * TIME_ANCHOR_BLOCKS;
     b < to;
@@ -174,6 +188,7 @@ async function blockTimes(
   }
   wanted.push(to)
   const times = await rpc.getBlockTimestamps(wanted)
+  if (stored) times.set(stored.block, stored.time)
   const insert = db.prepare(
     'insert into block_time (chain, block, time) values (?, ?, ?) on conflict do nothing',
   )
