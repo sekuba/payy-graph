@@ -1,0 +1,3 @@
+# pnpm >=10 blocks dependency build scripts unless allowed
+allowBuilds:
+  esbuild: true

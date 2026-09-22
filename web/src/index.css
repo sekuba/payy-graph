@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Roles from the dataviz reference palette; dark values are their own steps */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --hairline: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --send: #2a78d6;
+  --withdrawal: #eb6834;
+  --deposit: #1baf7a;
+  --wash: rgba(11, 11, 11, 0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hairline: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --send: #3987e5;
+    --withdrawal: #d95926;
+    --deposit: #199e70;
+    --wash: rgba(255, 255, 255, 0.06);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.mono {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.hairline {
+  border-color: var(--hairline);
+}
+input.search {
+  background: var(--surface);
+  border: 1px solid var(--axis);
+  border-radius: 6px;
+  color: var(--ink);
+  padding: 6px 10px;
+  width: 100%;
+}
+input.search:focus {
+  outline: 2px solid var(--send);
+  outline-offset: 1px;
+}
+.row:hover {
+  background: var(--wash);
+}
+.row.selected {
+  background: var(--wash);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+.chip {
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+button.toggle {
+  border: 1px solid var(--axis);
+  border-radius: 6px;
+  padding: 2px 8px;
+  color: var(--ink-2);
+  background: transparent;
+}
+button.toggle.on {
+  color: var(--ink);
+  background: var(--wash);
+}

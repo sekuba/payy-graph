@@ -1,0 +1,46 @@
+{
+  "name": "payy-graph",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Indexes the public spend graph of the Payy network and shows which deposits fund a withdrawal.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "sync": "tsx src/cli.ts sync",
+    "serve": "tsx src/cli.ts serve",
+    "web": "vite",
+    "build": "vite build && tsc -p tsconfig.json",
+    "start": "NODE_ENV=production node dist/cli.js serve",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "mocha",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@types/express": "^5.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.4.20",
+    "earl": "^1.3.0",
+    "mocha": "^10.8.2",
+    "postcss": "^8.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^3.4.14",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.0"
+  }
+}
