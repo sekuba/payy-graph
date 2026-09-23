@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type {
   Deposit,
   Destination,
+  Graph,
   Path,
   PathHop,
   Withdrawal,
@@ -762,4 +763,134 @@ function DestinationText({ d }: { d: Destination }) {
     default:
       return <span style={{ color: 'var(--muted)' }}>unspent</span>
   }
+}
+
+// ---- a deposit -----------------------------------------------------------
+
+/**
+ * The mirror of a withdrawal's panel for a deposit: where its money went,
+ * recipient by recipient, as far as the notes bound it
+ */
+export function DepositPanel({ graph, mint }: { graph: Graph; mint: string }) {
+  const d = graph.deposits.find((x) => x.txHash === mint)
+  if (!d) return null
+  const recipients = graph.recipients ?? []
+  const named = recipients
+    .filter((r) => r.share.min >= DUST)
+    .slice(0, NAMED_SOURCES)
+  const spread = graph.spread
+  const from = senderOf(d)
+  const same = named.some((r) => r.address === from)
+  // nothing bounded: one line instead of a column of question marks
+  const unbounded =
+    spread?.truncated === true && !recipients.some((r) => r.share.min >= DUST)
+  const lines: Line[] = (unbounded ? [] : recipients.slice(0, LISTED + 2)).map(
+    (r) => ({
+      key: r.address,
+      amount: between(r.share.min, r.share.max),
+      what: (
+        <>
+          {r.withdrawals === 1
+            ? 'of a withdrawal of'
+            : `of ${r.withdrawals} withdrawals of`}{' '}
+          {usdc(r.amount)} to <Address address={r.address} chain={r.chain} />,{' '}
+          {span([{ time: r.first }, { time: r.last }])}
+        </>
+      ),
+    }),
+  )
+  if (unbounded && recipients.length > 0) {
+    const n = recipients.reduce((a, r) => a + r.withdrawals, 0)
+    lines.push({
+      key: 'mixed',
+      amount: 'mixed',
+      what: `${n}+ withdrawals to ${recipients.length}+ recipients ahead of it in this view`,
+    })
+  }
+  const more = unbounded ? 0 : recipients.length - lines.length
+  if (more > 0) {
+    lines.push({
+      key: 'more',
+      amount: '',
+      what: `and ${more} more recipient${more === 1 ? '' : 's'}, each a smaller share`,
+    })
+  }
+  if (spread?.card !== undefined && spread.card > 0) {
+    lines.push({
+      key: 'card',
+      amount: `≤ ${usdc(spread.card)}`,
+      what: 'paid with the card',
+    })
+  }
+  if (spread?.unspent !== undefined && spread.unspent > 0) {
+    lines.push({
+      key: 'unspent',
+      amount: `≤ ${usdc(spread.unspent)}`,
+      what: 'still on Payy, in unspent notes',
+    })
+  }
+  return (
+    <section className="card grid gap-3 p-3">
+      <div className="link">
+        <DepositBox d={d} />
+        <div className="link-arrow text-xs" style={{ color: 'var(--muted)' }}>
+          <span>
+            {named[0] ? `${duration(named[0].first - d.time)} later` : ''}
+          </span>
+          {same && <span className="chip chip-strong">same address</span>}
+        </div>
+        <div className="grid gap-2">
+          {named.length > 0 ? (
+            named.map((r) => (
+              <Box
+                key={r.address}
+                color="withdrawal"
+                title={
+                  r.share.min >= r.amount
+                    ? r.withdrawals === 1
+                      ? 'Withdrawn'
+                      : `${r.withdrawals} withdrawals`
+                    : `${between(r.share.min, r.share.max)} of it in ${r.withdrawals === 1 ? 'a withdrawal' : `${r.withdrawals} withdrawals`} of`
+                }
+                amount={usdc(r.amount)}
+              >
+                to <Address address={r.address} chain={r.chain} />
+                <br />
+                {span([{ time: r.first }, { time: r.last }])}
+              </Box>
+            ))
+          ) : (
+            <Box
+              color="muted"
+              title={recipients.length > 0 ? 'Mixed' : 'Not withdrawn'}
+              amount={
+                recipients.length > 0
+                  ? `${recipients.length}${spread?.truncated ? '+' : ''} recipients`
+                  : 'no withdrawal yet'
+              }
+              unit=""
+            >
+              {recipients.length > 0
+                ? 'none of them provably got a cent of it'
+                : 'in this view'}
+            </Box>
+          )}
+        </div>
+      </div>
+      {lines.length > 0 && (
+        <table className="flow stack text-sm">
+          <tbody>
+            <Lines label="out" color="var(--withdrawal)" lines={lines} />
+          </tbody>
+        </table>
+      )}
+      {spread?.truncated && (
+        <p className="text-sm" style={{ color: 'var(--ink-2)' }}>
+          More transactions follow this deposit than the view holds, so only
+          lower bounds are shown: what the rest of the network cannot have
+          supplied.
+        </p>
+      )}
+    </section>
+  )
 }

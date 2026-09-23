@@ -1,6 +1,7 @@
 import { TxKind } from '../protocol'
 import type { Bounds } from './amounts'
 import type { Subgraph, TxnRow } from './closure'
+import { Role } from './roles'
 import type { Share } from './types'
 
 export interface Flow {
@@ -166,4 +167,106 @@ export function flowInto(
     )
   }
   return { notes, txns, shares, groups }
+}
+
+/** Where a deposit's funds can have gone, as far as the notes bound it */
+export interface Spread {
+  /** by burn tx: how much of the withdrawal can have come from the deposit */
+  withdrawals: Map<string, Share>
+  /** at most this went into card payments, and at most this is unspent */
+  card?: number
+  unspent?: number
+}
+
+/**
+ * The mirror of flowInto, walking forward from one deposit through `sub`,
+ * its forward closure. For each withdrawal ahead: at most what of the
+ * deposit can have flowed into it (a note carries at most its value and
+ * what of the deposit entered its transaction), and at least what the rest
+ * cannot cover (notes merged in from outside the view count as other funds
+ * at their full bound). Card payments and unspent notes get upper bounds
+ * the same way. When the closure was truncated, paths to a withdrawal can
+ * run through transactions not loaded, so only the lower bounds are given.
+ */
+export function spreadFrom(
+  sub: Pick<Subgraph, 'txns' | 'notes' | 'boundaries' | 'truncated'>,
+  bounds: Map<string, Bounds>,
+  mint: string,
+): Spread {
+  const deposit = sub.txns.get(mint)
+  const inputs = new Map<string, string[]>()
+  const outputs = new Map<string, string[]>()
+  for (const t of sub.txns.keys()) {
+    inputs.set(t, [])
+    outputs.set(t, [])
+  }
+  for (const n of sub.notes.values()) {
+    if (n.spent_tx) inputs.get(n.spent_tx)?.push(n.commitment)
+    if (n.created_tx) outputs.get(n.created_tx)?.push(n.commitment)
+  }
+  const order = [...sub.txns.values()].sort(
+    (a, b) => a.height - b.height || a.idx - b.idx,
+  )
+  const hi = (n: string) =>
+    bounds.get(n)?.value ?? bounds.get(n)?.max ?? Number.POSITIVE_INFINITY
+  const amount = deposit?.amount ?? 0
+  /** what of `source` each note carries at most, and what each burn takes */
+  const carry = (
+    source: (t: TxnRow) => number,
+    outside: (n: string) => number,
+  ) => {
+    const carried = new Map<string, number>()
+    const burned = new Map<string, number>()
+    for (const t of order) {
+      const inflow =
+        source(t) +
+        (inputs.get(t.hash) ?? []).reduce(
+          (a, n) =>
+            a +
+            (sub.txns.has(sub.notes.get(n)?.created_tx ?? '')
+              ? (carried.get(n) ?? 0)
+              : outside(n)),
+          0,
+        )
+      for (const n of outputs.get(t.hash) ?? []) {
+        carried.set(n, Math.min(hi(n), inflow))
+      }
+      if (t.kind === TxKind.Burn) burned.set(t.hash, Math.min(t.amount, inflow))
+    }
+    return { carried, burned }
+  }
+  const mine = carry(
+    (t) => (t.hash === mint ? amount : 0),
+    () => 0,
+  )
+  const other = carry(
+    (t) => (t.kind === TxKind.Mint && t.hash !== mint ? t.amount : 0),
+    hi,
+  )
+  const withdrawals = new Map<string, Share>()
+  for (const t of order) {
+    if (t.kind !== TxKind.Burn) continue
+    const max = sub.truncated
+      ? undefined
+      : Math.min(amount, mine.burned.get(t.hash) ?? 0)
+    const min = Math.max(0, t.amount - (other.burned.get(t.hash) ?? 0))
+    withdrawals.set(t.hash, {
+      min: max === undefined ? min : Math.min(min, max),
+      max,
+    })
+  }
+  if (sub.truncated) return { withdrawals }
+  let card = 0
+  let unspent = 0
+  for (const n of sub.notes.values()) {
+    if (!sub.txns.has(n.created_tx ?? '')) continue
+    const c = mine.carried.get(n.commitment) ?? 0
+    if (!n.spent_tx) unspent += c
+    else if (sub.boundaries.get(n.spent_tx)?.role === Role.Card) card += c
+  }
+  return {
+    withdrawals,
+    card: Math.min(amount, card),
+    unspent: Math.min(amount, unspent),
+  }
 }

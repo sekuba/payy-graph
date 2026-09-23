@@ -12,13 +12,15 @@ import {
   withSideBranches,
 } from './closure'
 import { cardBatch, migrationSummary, Role } from './roles'
-import { flowInto } from './sources'
+import { flowInto, spreadFrom } from './sources'
 import type {
   AddressSummary,
   Bridged,
   CardBatch,
   Deposit,
   Graph,
+  Link,
+  Recipient,
   Resolved,
   Sender,
   Share,
@@ -251,6 +253,19 @@ export function graphAround(
   })
   const flow =
     behind && flowInto(behind, bounds, burns, (h) => senderOfTx(found, h))
+  // the mirror: where one deposit's funds went, over the part ahead of it
+  const mint =
+    txHashes.length === 1 &&
+    sub.txns.get(txHashes[0] ?? '')?.kind === TxKind.Mint
+      ? txHashes[0]
+      : undefined
+  const ahead =
+    mint && direction.forward
+      ? direction.backward
+        ? collect(db, [mint], { backward: false, forward: true }, limit)
+        : sub
+      : undefined
+  const spread = ahead && mint ? spreadFrom(ahead, bounds, mint) : undefined
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
   for (const d of found) {
@@ -322,6 +337,18 @@ export function graphAround(
         found.filter((d) => behind?.txns.has(d.txHash)),
         flow.groups,
       ),
+    ...(spread &&
+      ahead && {
+        spread: {
+          card: spread.card,
+          unspent: spread.unspent,
+          truncated: ahead.truncated,
+        },
+        recipients: recipientsOf(
+          withdrawals.filter((w) => ahead.txns.has(w.txHash)),
+          spread.withdrawals,
+        ),
+      }),
     truncated: sub.truncated,
   }
 }
@@ -369,6 +396,46 @@ export function sendersOf(
     )
 }
 
+/**
+ * Withdrawals by recipient, with how much of each recipient's withdrawals
+ * can have come from the deposit (the sums of their bounds), largest first
+ */
+export function recipientsOf(
+  withdrawals: Withdrawal[],
+  shares: Map<string, Share>,
+): Recipient[] {
+  const by = new Map<string, Withdrawal[]>()
+  for (const w of withdrawals) {
+    if (!shares.has(w.txHash)) continue
+    const a = w.recipient.toLowerCase()
+    by.set(a, [...(by.get(a) ?? []), w])
+  }
+  return [...by]
+    .map(([address, own]) => {
+      const s = own.map((w) => shares.get(w.txHash) ?? { min: 0 })
+      const open = s.some((x) => x.max === undefined)
+      return {
+        address,
+        chain: own[0]?.chain,
+        withdrawals: own.length,
+        amount: own.reduce((a, w) => a + w.amount, 0),
+        first: Math.min(...own.map((w) => w.time)),
+        last: Math.max(...own.map((w) => w.time)),
+        burnTx: own.length === 1 ? own[0]?.txHash : undefined,
+        share: {
+          min: s.reduce((a, x) => a + x.min, 0),
+          max: open ? undefined : s.reduce((a, x) => a + (x.max ?? 0), 0),
+        },
+      }
+    })
+    .filter((r) => r.share.max === undefined || r.share.max > 0)
+    .sort(
+      (a, b) =>
+        (b.share.max ?? b.share.min) - (a.share.max ?? a.share.min) ||
+        b.share.min - a.share.min,
+    )
+}
+
 /** Deposits with the largest share first: by its upper, then lower bound */
 export function bySize(a: Deposit, b: Deposit): number {
   const size = (d: Deposit) => d.share?.max ?? d.share?.min ?? 0
@@ -399,16 +466,49 @@ export function addressSummary(db: Db, address: string): AddressSummary {
     addr,
     addr,
   )
+  // who is linked to it, as far as the withdrawals are traced
+  const links = (sql: string) =>
+    all<Link>(db, sql, addr).filter((l) => l.address)
   return {
     address: addr,
     label: labelOf(addr),
     withdrawals: burns.map((b) => withdrawalOf(db, b)),
     deposits: mints.flatMap((m) => depositOf(db, m) ?? []),
+    fundedBy: links(
+      `select t.sender as address, count(*) as withdrawals,
+         sum(t.sender_min) as amount
+       from txn x join trace t on t.burn_tx = x.hash
+       where x.kind = 3 and x.burn_addr = ? and t.sender is not null
+       group by t.sender order by amount desc limit 8`,
+    ),
+    funded: links(
+      `select x.burn_addr as address, count(*) as withdrawals,
+         sum(t.sender_min) as amount
+       from trace t join txn x on x.hash = t.burn_tx
+       where t.sender = ?
+       group by x.burn_addr order by amount desc limit 8`,
+    ),
   }
 }
 
-/** Figures out what a user typed: an L1 address, a Payy tx hash or a commitment */
+/**
+ * Figures out what a user typed: an L1 address, an ENS or GNS name of one,
+ * a Payy tx hash or a commitment. Names are looked up among the addresses
+ * the index has seen, whose primary names are verified both ways.
+ */
 export function resolve(db: Db, input: string): Resolved {
+  const name = input.trim().toLowerCase()
+  if (/^[^\s/]+\.(eth|gwei)$/.test(name)) {
+    const row = one<{ address: string }>(
+      db,
+      'select address from name where ens = ? or gns = ? limit 1',
+      name,
+      name,
+    )
+    return row
+      ? { type: 'address', address: row.address }
+      : { type: 'unknown', name }
+  }
   const q = input.trim().toLowerCase().replace(/^0x/, '')
   if (/^[0-9a-f]{40}$/.test(q)) return { type: 'address', address: `0x${q}` }
   if (/^[0-9a-f]{64}$/.test(q)) {

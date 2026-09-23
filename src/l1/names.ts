@@ -92,9 +92,10 @@ export async function lookupNames(
 const NAMES_POLL_MS = 10 * 60_000
 
 /**
- * Keeps the names of every depositor and withdrawal recipient resolved, so
- * that the live view can show and filter by them: new addresses soon after
- * they appear, the others again after TTL_SECONDS.
+ * Keeps the names of every depositor and withdrawal recipient resolved, and
+ * of who sent bridged deposits on the other chain, so that the live view can
+ * show and filter by them and a search can find them by name: new addresses
+ * soon after they appear, the others again after TTL_SECONDS.
  */
 export async function syncNames(
   db: Db,
@@ -108,6 +109,8 @@ export async function syncNames(
       `select a from (
          select depositor as a from deposit
          union select burn_addr as a from txn where kind = 3
+         union select funder as a from bridge_in
+         union select origin_depositor as a from bridge_in
        ) left join name on name.address = a
        where a is not null and coalesce(name.checked, 0) < ?
        limit 5000`,

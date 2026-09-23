@@ -271,15 +271,21 @@ export function liveStats(db: Db, now = Math.floor(Date.now() / 1000)) {
 }
 
 function traceSummary(db: Db, fromHeight: number): LiveStats['traces']['all'] {
-  const rows = all<Parameters<typeof fromRow>[0]>(
+  const raw = all<Parameters<typeof fromRow>[0] & { burn_amount: number }>(
     db,
-    'select * from trace where height > ?',
+    `select trace.*, txn.amount as burn_amount from trace
+     join txn on txn.hash = trace.burn_tx where trace.height > ?`,
     fromHeight,
-  ).map(fromRow)
+  )
+  const rows = raw.map(fromRow)
   const found = rows.filter((t) => t.depositors > 0)
   return {
     count: rows.length,
     single: rows.filter((t) => t.origin === 'deposit').length,
+    // all of it provably from the deposits of one sender
+    attributed: raw.filter(
+      (r) => r.sender_min !== null && r.sender_min >= r.burn_amount,
+    ).length,
     medianDepositors: median(found.map((t) => t.depositors)),
     medianNearest: median(found.flatMap((t) => t.nearest ?? [])),
   }

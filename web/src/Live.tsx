@@ -6,11 +6,11 @@ import type {
   NamedAddress,
   Trace,
 } from '../../src/graph/types'
-import { CHAINS, type ChainId } from '../../src/protocol'
+import { CHAINS, type ChainId, ORIGIN_CHAINS } from '../../src/protocol'
 import { Address } from './Address'
 import { api } from './api'
 import { BridgeText } from './Bridge'
-import { date, l1TxUrl, usdc } from './format'
+import { between, date, l1TxUrl, usdc } from './format'
 import { seedNames } from './names'
 
 const TABS = [
@@ -219,17 +219,16 @@ function totals(t: { count: number; amount: number }): React.ReactNode {
 function Stats({ stats }: { stats: LiveStats }) {
   const [range, setRange] = useState<'week' | 'all'>('week')
   const t = stats.traces[range]
-  const share = t.count ? Math.round((100 * t.single) / t.count) : undefined
   return (
     <section className="card grid gap-1 p-3 text-sm">
       <div className="stats">
         <Stat
-          label="traced to one deposit"
-          title="withdrawals whose note descends from exactly one deposit, through the wallet's own transactions, with no second history merged in"
+          label="fully from one sender"
+          title="withdrawals all of which provably came from the deposits of one address (the sender on the other chain when bridged in): the notes between them leave no room for anyone else's funds"
         >
-          {share !== undefined ? `${share}%` : '–'}{' '}
+          {t.count ? `${Math.round((100 * t.attributed) / t.count)}%` : '–'}{' '}
           <Muted>
-            ({t.single.toLocaleString('en-US')} of{' '}
+            ({t.attributed.toLocaleString('en-US')} of{' '}
             {t.count.toLocaleString('en-US')})
           </Muted>
         </Stat>
@@ -446,6 +445,8 @@ function Row({
           <Source
             trace={e.trace}
             time={e.withdrawal.time}
+            recipient={e.withdrawal.recipient}
+            amount={e.withdrawal.amount}
             sameAmount={sameDeposit(e)}
           />
         </td>
@@ -558,10 +559,14 @@ function AmountMatchText({
 function Source({
   trace: t,
   time,
+  recipient,
+  amount,
   sameAmount,
 }: {
   trace?: Trace
   time: number
+  recipient: string
+  amount: number
   /** the source deposit also has exactly the withdrawn amount */
   sameAmount?: boolean
 }) {
@@ -569,6 +574,44 @@ function Source({
     return (
       <span style={{ color: 'var(--muted)' }} title="not traced yet">
         …
+      </span>
+    )
+  }
+  // who provably supplied it: the link, in one line
+  const s = t.sender
+  if (s) {
+    const all = s.min >= amount
+    return (
+      <span>
+        ← <span className="mono">{all ? 'all' : between(s.min, s.max)}</span>{' '}
+        from{' '}
+        <Address
+          address={s.address}
+          explorer={s.chain ? ORIGIN_CHAINS[s.chain]?.explorer : undefined}
+        />
+        <span style={{ color: 'var(--muted)' }}>
+          {s.deposits > 1 ? ` · ${s.deposits} deposits` : ''}
+          {s.chain
+            ? ` · via ${ORIGIN_CHAINS[s.chain]?.name ?? 'another chain'}`
+            : ''}
+          {t.source ? ` · ${ago(time - t.source.time)} earlier` : ''}
+        </span>
+        {s.address === recipient.toLowerCase() && (
+          <span
+            className="chip chip-strong ml-1"
+            title="the sender of the deposits and the recipient of the withdrawal are the same address"
+          >
+            same address
+          </span>
+        )}
+        {sameAmount && (
+          <span
+            className="chip chip-strong ml-1"
+            title="the deposit also has exactly the withdrawn amount"
+          >
+            same amount
+          </span>
+        )}
       </span>
     )
   }

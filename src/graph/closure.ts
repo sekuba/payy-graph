@@ -138,33 +138,58 @@ export function collect(
 const SIDE_LIMIT = 200
 
 /**
- * The subgraph plus a short forward walk from every note that leaves it,
- * for amount inference only. A payment that is withdrawn or paid with the
- * card a few transactions later gets its value from there, and with it the
- * change its transaction kept, which the subgraph alone leaves open. (A
- * wallet that pays 3.06 out of 3.067 keeps 0.007, which only shows once the
- * 3.06 is followed to its withdrawal.) Nearest first, up to `limit`.
+ * The subgraph plus short walks along its side branches, for amount
+ * inference only:
+ *
+ * - back from every note that enters it from outside (in a view forward
+ *   from a deposit, a note the wallet merges in from another history), so
+ *   that its value can follow from where it came from;
+ * - forward from every note that leaves it, of the subgraph and of that
+ *   backward walk: a payment that is withdrawn or paid with the card a few
+ *   transactions later gets its value from there, and with it the change
+ *   its transaction kept. (A wallet that pays 3.06 out of 3.067 keeps
+ *   0.007, which only shows once the 3.06 is followed to its withdrawal.)
+ *
+ * Nearest first, up to `limit` transactions each way.
  */
 export function withSideBranches(
   db: Db,
   sub: Pick<Subgraph, 'txns' | 'notes' | 'boundaries'>,
   limit = SIDE_LIMIT,
 ): Pick<Subgraph, 'txns' | 'notes' | 'boundaries'> {
-  const starts = new Set<string>()
+  const merge = (
+    a: Pick<Subgraph, 'txns' | 'notes' | 'boundaries'>,
+    b: Pick<Subgraph, 'txns' | 'notes' | 'boundaries'>,
+  ) => ({
+    txns: new Map([...b.txns, ...a.txns]),
+    notes: new Map([...b.notes, ...a.notes]),
+    boundaries: new Map([...b.boundaries, ...a.boundaries]),
+  })
+  const outside = (
+    g: Pick<Subgraph, 'txns' | 'boundaries'>,
+    h: string | null,
+  ): h is string => !!h && !g.txns.has(h) && !g.boundaries.has(h)
+
+  let all = sub
+  const back = new Set<string>()
   for (const n of sub.notes.values()) {
-    const to = n.spent_tx
-    if (to && !sub.txns.has(to) && !sub.boundaries.has(to)) starts.add(to)
+    if (outside(sub, n.created_tx)) back.add(n.created_tx)
   }
-  if (starts.size === 0) return sub
-  const side = collect(
-    db,
-    [...starts],
-    { backward: false, forward: true },
-    limit,
-  )
-  return {
-    txns: new Map([...side.txns, ...sub.txns]),
-    notes: new Map([...side.notes, ...sub.notes]),
-    boundaries: new Map([...side.boundaries, ...sub.boundaries]),
+  if (back.size > 0) {
+    all = merge(
+      all,
+      collect(db, [...back], { backward: true, forward: false }, limit),
+    )
   }
+  const ahead = new Set<string>()
+  for (const n of all.notes.values()) {
+    if (outside(all, n.spent_tx)) ahead.add(n.spent_tx)
+  }
+  if (ahead.size > 0) {
+    all = merge(
+      all,
+      collect(db, [...ahead], { backward: false, forward: true }, limit),
+    )
+  }
+  return all
 }

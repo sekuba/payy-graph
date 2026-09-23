@@ -162,6 +162,8 @@ const SCHEMA = `
     gns text,
     checked integer not null
   );
+  create index if not exists name_ens on name(ens) where ens is not null;
+  create index if not exists name_gns on name(gns) where gns is not null;
 
   create table if not exists sync (
     key text primary key,
@@ -176,7 +178,35 @@ export function openDb(path: string): Db {
   db.exec('pragma journal_mode = wal')
   db.exec('pragma synchronous = normal')
   db.exec(SCHEMA)
+  migrate(db)
   return db
+}
+
+/** Columns added to existing tables after their first release */
+const ADDED: Record<string, Record<string, string>> = {
+  trace: {
+    sender: 'text', // the sender whose deposits provably supplied most of it
+    sender_chain: 'integer', // EVM chain id it bridged from, if it did
+    sender_deposits: 'integer',
+    sender_min: 'integer', // its share of the withdrawal
+    sender_max: 'integer',
+  },
+}
+
+function migrate(db: Db): void {
+  for (const [table, columns] of Object.entries(ADDED)) {
+    const have = new Set(
+      (
+        db.prepare(`pragma table_info(${table})`).all() as { name: string }[]
+      ).map((c) => c.name),
+    )
+    for (const [name, type] of Object.entries(columns)) {
+      if (!have.has(name))
+        db.exec(`alter table ${table} add column ${name} ${type}`)
+    }
+  }
+  // indexes on added columns, once they exist
+  db.exec('create index if not exists trace_sender on trace(sender)')
 }
 
 export function getSync(db: Db, key: string): string | undefined {

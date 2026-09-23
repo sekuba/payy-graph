@@ -4,7 +4,7 @@ import { insertTxns } from '../payy/indexer'
 import { getTxn } from './closure'
 import { walkPath } from './path'
 import { graphAround } from './queries'
-import { flowInto } from './sources'
+import { flowInto, spreadFrom } from './sources'
 import { addr, txn } from './testing'
 
 /**
@@ -129,5 +129,30 @@ describe(flowInto.name, () => {
     ).run('0x00000000000000000000000000000000000000d1')
     const g = graphAround(db, ['burn'], { backward: true, forward: false })
     expect(g.deposits[0]?.share).toEqual({ min: 60, max: 60 })
+  })
+})
+
+describe(spreadFrom.name, () => {
+  it('tells where a deposit went, withdrawal by withdrawal', () => {
+    const ahead = (mint: string) =>
+      graphAround(history(), [mint], { backward: false, forward: true })
+    const byRecipient = (mint: string) =>
+      Object.fromEntries(
+        (ahead(mint).recipients ?? []).map((r) => [
+          r.address.slice(-2),
+          r.share,
+        ]),
+      )
+    // 9.067: 6 withdrawn, 3.06 paid on and withdrawn, 0.007 into the next
+    expect(byRecipient('mint1')).toEqual({
+      e4: { min: 6_000_000, max: 6_000_000 },
+      c6: { min: 3_060_000, max: 3_060_000 },
+      '33': { min: 0, max: 7_000 },
+    })
+    // 2.892723: all but at most 0.007 of the 2.88 is its own
+    expect(byRecipient('mint2')).toEqual({
+      '33': { min: 2_873_000, max: 2_880_000 },
+    })
+    expect(ahead('mint2').spread?.card).toEqual(0)
   })
 })

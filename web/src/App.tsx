@@ -8,10 +8,11 @@ import type {
 } from '../../src/graph/types'
 import { Address } from './Address'
 import { api, type Direction } from './api'
+import { usdc } from './format'
 import { GraphView } from './GraphView'
 import { Live } from './Live'
-import { PathPanel } from './PathPanel'
-import { SourcesGraph } from './SourcesGraph'
+import { DepositPanel, PathPanel } from './PathPanel'
+import { SourcesGraph, SpreadGraph } from './SourcesGraph'
 import { DepositTable, WithdrawalTable } from './Tables'
 
 /** Withdrawals of an address shown at first; the rest can be toggled on */
@@ -166,7 +167,7 @@ export function App() {
         >
           <input
             className="search mono"
-            placeholder="L1 address, Payy transaction hash or note commitment"
+            placeholder="Address, ENS name, Payy transaction or note"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             spellCheck={false}
@@ -207,7 +208,9 @@ export function App() {
 
       {resolved?.type === 'unknown' && (
         <div style={{ color: 'var(--ink-2)' }}>
-          Nothing in the index matches this input.
+          {resolved.name
+            ? `No address named ${resolved.name} has deposited into or withdrawn from Payy (names are matched against the primary name set for an address).`
+            : 'Nothing in the index matches this input.'}
         </div>
       )}
 
@@ -221,6 +224,7 @@ export function App() {
               {plural(summary.deposits.length, 'deposit')}
             </span>
           </div>
+          <Links summary={summary} />
           {summary.withdrawals.length > 0 && (
             <WithdrawalTable
               withdrawals={[...summary.withdrawals].reverse()}
@@ -240,9 +244,13 @@ export function App() {
         <PathPanel key={p.withdrawal.txHash} path={p} />
       ))}
 
+      {graph && spreadOf(graph, selected) && (
+        <DepositPanel graph={graph} mint={spreadOf(graph, selected) ?? ''} />
+      )}
+
       {graph && (
         <>
-          {sourcesOf(graph, selected) && (
+          {(sourcesOf(graph, selected) || spreadOf(graph, selected)) && (
             <div className="flex gap-1 text-xs">
               {(['sources', 'transactions'] as const).map((v) => (
                 <button
@@ -251,7 +259,11 @@ export function App() {
                   className={`toggle ${view === v ? 'on' : ''}`}
                   onClick={() => setView(v)}
                 >
-                  {v === 'sources' ? 'where it came from' : 'all transactions'}
+                  {v === 'sources'
+                    ? sourcesOf(graph, selected)
+                      ? 'where it came from'
+                      : 'where it went'
+                    : 'all transactions'}
                 </button>
               ))}
             </div>
@@ -261,6 +273,14 @@ export function App() {
               <SourcesGraph
                 graph={graph}
                 burn={sourcesOf(graph, selected) ?? ''}
+                onSelect={(h) => setQuery(h)}
+              />
+            </section>
+          ) : spreadOf(graph, selected) && view === 'sources' ? (
+            <section className="card p-3">
+              <SpreadGraph
+                graph={graph}
+                mint={spreadOf(graph, selected) ?? ''}
                 onSelect={(h) => setQuery(h)}
               />
             </section>
@@ -294,14 +314,23 @@ export function App() {
               />
             </section>
           )}
-          <section className="card p-3">
-            <DepositTable deposits={graph.deposits} />
+          <details className="card p-3">
+            <summary
+              className="cursor-pointer text-xs"
+              style={{ color: 'var(--ink-2)' }}
+            >
+              {plural(graph.deposits.length, 'deposit')} and{' '}
+              {plural(graph.withdrawals.length, 'withdrawal')} in this view
+            </summary>
+            <div className="mt-2">
+              <DepositTable deposits={graph.deposits} />
+            </div>
             {graph.withdrawals.length > 0 && (
               <div className="mt-3">
                 <WithdrawalTable withdrawals={graph.withdrawals} />
               </div>
             )}
-          </section>
+          </details>
         </>
       )}
     </div>
@@ -317,6 +346,55 @@ function sourcesOf(graph: Graph, selected: Set<string>): string | undefined {
   const [burn] = selected
   const w = graph.withdrawals.find((x) => x.txHash === burn)
   return w && graph.deposits.some((d) => d.share) ? w.txHash : undefined
+}
+
+/**
+ * Who an address is linked to through its withdrawals: the senders whose
+ * deposits provably supplied them, and the recipients of withdrawals its
+ * own deposits supplied (from the stored traces)
+ */
+function Links({ summary }: { summary: AddressSummary }) {
+  const own = summary.address.toLowerCase()
+  const line = (label: string, links: AddressSummary['funded']) =>
+    links.length > 0 && (
+      <div className="text-sm">
+        <span style={{ color: 'var(--muted)' }}>{label} </span>
+        {links.map((l, i) => (
+          <span key={l.address}>
+            {i > 0 && <span style={{ color: 'var(--muted)' }}> · </span>}
+            {l.address === own ? (
+              <span className="chip chip-strong">itself</span>
+            ) : (
+              <Address address={l.address} />
+            )}
+            <span className="mono" style={{ color: 'var(--muted)' }}>
+              {' '}
+              {l.withdrawals === 1 ? '' : `${l.withdrawals}× `}≥{' '}
+              {usdc(l.amount)}
+            </span>
+          </span>
+        ))}
+      </div>
+    )
+  const by = line('withdrawals funded by', summary.fundedBy)
+  const to = line('deposits funded withdrawals to', summary.funded)
+  if (!by && !to) return null
+  return (
+    <div
+      className="mb-3 grid gap-1"
+      title="From the traced withdrawals: a sender counts when its deposits provably supplied at least a cent of a withdrawal"
+    >
+      {by}
+      {to}
+    </div>
+  )
+}
+
+/** The deposit a "where it went" view can be drawn for */
+function spreadOf(graph: Graph, selected: Set<string>): string | undefined {
+  if (selected.size !== 1 || !graph.recipients) return undefined
+  const [mint] = selected
+  return graph.deposits.find((d) => d.txHash === mint)?.txHash
 }
 
 function plural(n: number, word: string): string {

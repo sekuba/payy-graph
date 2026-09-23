@@ -77,6 +77,13 @@ withdrawals. The parts of the graph that can put less than one cent into
 the withdrawal are drawn faint; Payy withdrawals are whole cents. When the
 history is larger than the walk, only the lower bounds are given.
 
+Deposits are also bounded by who sent them: several deposits of one sender
+together can provably cover a withdrawal that none of them covers alone.
+The trace stores the sender behind most of each withdrawal, which gives the
+live view its link ("← all from 0x…") and an address page the addresses it
+is linked to. The mirror view of a deposit bounds, for every withdrawal
+ahead of it, how much of that withdrawal can have come from the deposit.
+
 ## Deposits bridged in from other chains
 
 The Payy app deposits USDC held on other chains through
@@ -179,7 +186,7 @@ The node is operated by Payy and is the only public copy of the history, so
 
 ```
 GET /api/status
-GET /api/search/:query          address, Payy tx hash or note commitment
+GET /api/search/:query          address, ENS or GNS name, Payy tx hash or note commitment
 GET /api/address/:address       withdrawals to and deposits from an address
 GET /api/path/:burnTx           a withdrawal's history: origin and released notes
 GET /api/graph?tx=&dir=back|forward|both&limit=

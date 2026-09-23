@@ -49,6 +49,20 @@ export interface Sender {
   share: Share
 }
 
+/** The withdrawals to one recipient ahead of a deposit, bounded */
+export interface Recipient {
+  address: string
+  chain?: ChainId
+  withdrawals: number
+  amount: number
+  first: number
+  last: number
+  /** the withdrawal, when there is one */
+  burnTx?: string
+  /** how much of these withdrawals can have come from the deposit */
+  share: Share
+}
+
 /** How much of the focused withdrawals can have come from one deposit */
 export interface Share {
   min: number
@@ -253,6 +267,10 @@ export interface Graph {
   batches: CardBatch[]
   /** seen back from withdrawals: the deposits by sender, largest share first */
   senders?: Sender[]
+  /** seen forward from one deposit: its withdrawals by recipient */
+  recipients?: Recipient[]
+  /** and at most how much of it went into card payments or is unspent */
+  spread?: { card?: number; unspent?: number; truncated: boolean }
   /** traversal stopped at the node limit */
   truncated: boolean
 }
@@ -262,13 +280,26 @@ export interface AddressSummary {
   label?: string
   withdrawals: Withdrawal[]
   deposits: Deposit[]
+  /** the senders whose deposits provably supplied its withdrawals */
+  fundedBy: Link[]
+  /** the recipients of withdrawals its deposits provably supplied */
+  funded: Link[]
+}
+
+/** Another address and the withdrawals that link them, from the traces */
+export interface Link {
+  address: string
+  withdrawals: number
+  /** at least this much of those withdrawals, together */
+  amount: number
 }
 
 export type Resolved =
   | { type: 'address'; address: string }
   | { type: 'txn'; hash: string }
   | { type: 'note'; commitment: string; createdTx?: string; spentTx?: string }
-  | { type: 'unknown' }
+  /** `name`: an ENS or GNS name no address in the index has */
+  | { type: 'unknown'; name?: string }
 
 /** Where a withdrawal's funds came from (src/graph/traces.ts) */
 export interface Trace {
@@ -282,6 +313,17 @@ export interface Trace {
     amount: number
     /** transactions between the deposit and the withdrawal */
     hops: number
+  }
+  /**
+   * the sender whose deposits provably supplied the largest part of it (at
+   * least a cent), with that part
+   */
+  sender?: {
+    address: string
+    chain?: number
+    deposits: number
+    min: number
+    max?: number
   }
   /** distinct addresses behind the deposits in its history */
   depositors: number
@@ -341,6 +383,8 @@ export interface LiveStats {
       count: number
       /** begin with one deposit */
       single: number
+      /** all of it provably from the deposits of one sender */
+      attributed: number
       medianDepositors?: number
       medianNearest?: number
     }

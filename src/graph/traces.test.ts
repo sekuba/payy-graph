@@ -27,6 +27,27 @@ function history() {
 }
 
 describe(computeTrace.name, () => {
+  it('stores the sender behind the withdrawal', () => {
+    const db = openDb(':memory:')
+    insertTxns(db, [
+      txn('mint', 1, 2, [], ['a'], 100_000_000),
+      txn('burn', 2, 3, ['a'], ['c'], 70_000_000, addr(0xaa)),
+    ])
+    db.prepare(
+      `insert into deposit (chain, mint_hash, block, tx, log_index, time, depositor, amount)
+       values ('ethereum', 'mh', 1, '0x1', 0, 1, ?, 100000000)`,
+    ).run('0x00000000000000000000000000000000000000d1')
+    const burn = getTxn(db, 'burn')
+    if (!burn) throw new Error('missing burn')
+    expect(computeTrace(db, burn).sender).toEqual({
+      address: '0x00000000000000000000000000000000000000d1',
+      chain: undefined,
+      deposits: 1,
+      min: 70_000_000,
+      max: 70_000_000,
+    })
+  })
+
   it('names the one deposit a withdrawal descends from', () => {
     const db = history()
     const burn = getTxn(db, 'burnA')
@@ -37,6 +58,8 @@ describe(computeTrace.name, () => {
       '0x00000000000000000000000000000000000000d1',
     )
     expect(t.source?.hops).toEqual(2)
+    // 0.00007 USDC: under a cent, so no sender is named
+    expect(t.sender).toEqual(undefined)
     expect(t.depositors).toEqual(1)
   })
 

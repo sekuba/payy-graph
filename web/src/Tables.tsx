@@ -41,7 +41,6 @@ function useRows<T>(rows: T[]): [T[], React.ReactNode] {
 export function DepositTable({ deposits }: { deposits: Deposit[] }) {
   const [shown, more] = useRows(deposits)
   const total = deposits.reduce((a, d) => a + d.amount, 0)
-  const showHops = deposits.some((d) => d.hops !== undefined)
   // in a truncated graph only lower bounds are known, mostly zero
   const known = (d: Deposit) =>
     d.share !== undefined && (d.share.max !== undefined || d.share.min > 0)
@@ -57,7 +56,6 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
               In withdrawal
             </th>
           )}
-          {showHops && <th className="py-1 text-right font-normal">Hops</th>}
           <th className="py-1 font-normal">Chain</th>
           <th className="py-1 font-normal">Time</th>
           <th className="py-1 font-normal">L1 tx</th>
@@ -91,11 +89,6 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
                 {d.share && known(d) && between(d.share.min, d.share.max)}
               </td>
             )}
-            {showHops && (
-              <td className="mono py-1 text-right" data-label="hops">
-                {d.hops ?? ''}
-              </td>
-            )}
             <td className="py-1">{CHAINS[d.chain].name}</td>
             <td className="mono py-1">{date(d.time)}</td>
             <td className="mono py-1" data-label="L1">
@@ -118,7 +111,7 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
           <tr className="hairline border-t" style={{ color: 'var(--ink-2)' }}>
             <td className="py-1">{deposits.length} deposits</td>
             <td className="mono py-1 text-right">{usdc(total)}</td>
-            <td colSpan={4 + (showHops ? 1 : 0) + (showShare ? 1 : 0)} />
+            <td colSpan={4 + (showShare ? 1 : 0)} />
           </tr>
         )}
       </tbody>
@@ -163,17 +156,18 @@ export function WithdrawalTable({
           >
             <td className="py-1">
               <Address address={w.recipient} chain={w.chain} full />
-              {w.substituted && (
-                <span className="chip ml-2" title={FRONTED}>
-                  fronted
-                </span>
-              )}
             </td>
             <td className="mono py-1 text-right">
               {usdc(w.amount)} <span className="sm:hidden">USDC</span>
             </td>
-            <td className="py-1">
+            <td
+              className={`py-1 ${w.substituted ? 'help' : ''}`}
+              title={w.substituted ? FRONTED : undefined}
+            >
               {w.chain ? CHAINS[w.chain].name : 'pending'}
+              {w.substituted && (
+                <span style={{ color: 'var(--muted)' }}> · early</span>
+              )}
             </td>
             <td className="mono py-1">{date(w.time)}</td>
             <td className="mono py-1" data-label="L1">
