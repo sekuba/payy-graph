@@ -1,5 +1,6 @@
 import { all, type Db, transaction } from '../db'
 import type { Names } from '../graph/types'
+import { log, sleep } from '../log'
 import type { JsonRpc } from './rpc'
 
 /**
@@ -85,6 +86,47 @@ export async function lookupNames(
     }
   }
   return names
+}
+
+/** How often the background job looks for new or stale addresses */
+const NAMES_POLL_MS = 10 * 60_000
+
+/**
+ * Keeps the names of every depositor and withdrawal recipient resolved, so
+ * that the live view can show and filter by them: new addresses soon after
+ * they appear, the others again after TTL_SECONDS.
+ */
+export async function syncNames(
+  db: Db,
+  rpc: JsonRpc,
+  options: { follow: boolean },
+): Promise<void> {
+  for (;;) {
+    const now = Math.floor(Date.now() / 1000)
+    const due = all<{ a: string }>(
+      db,
+      `select a from (
+         select depositor as a from deposit
+         union select burn_addr as a from txn where kind = 3
+       ) left join name on name.address = a
+       where a is not null and coalesce(name.checked, 0) < ?
+       limit 5000`,
+      now - TTL_SECONDS,
+    ).map((r) => r.a)
+    if (due.length > 0) {
+      try {
+        await lookupNames(db, rpc, due)
+        log('names', { resolved: due.length })
+        continue
+      } catch (e) {
+        // an extra: wait for the RPC rather than fail the sync
+        log('names failed', { error: String(e) })
+        if (!options.follow) throw e
+      }
+    }
+    if (!options.follow) break
+    await sleep(NAMES_POLL_MS)
+  }
 }
 
 async function resolve(

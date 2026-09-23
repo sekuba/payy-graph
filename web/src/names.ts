@@ -44,6 +44,14 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener)
 }
 
+/** Adds names the server sent along with other data */
+export function seedNames(names: Names) {
+  for (const a of Object.keys(names)) asked.add(a)
+  Object.assign(known, names)
+  version++
+  for (const l of listeners) l()
+}
+
 /** The names known so far; asks for the given addresses in the background */
 export function useNames(addresses: string[]): Names {
   const key = addresses.join(',')

@@ -13,6 +13,7 @@ export function Address({
   l1Tx,
   full,
   quiet,
+  noName,
 }: {
   address: string
   chain?: ChainId
@@ -22,10 +23,12 @@ export function Address({
   full?: boolean
   /** show nothing when there is no label or name */
   quiet?: boolean
+  /** leave the name out, where it is shown next to the address */
+  noName?: boolean
 }) {
   const names = useNames([address])
   const label = labelOf(address)
-  const name = nameOf(names, address)
+  const name = noName ? undefined : nameOf(names, address)
   if (quiet && !label && !name) return null
   const text = label ?? name ?? (full ? address : shortHex(address, 6))
   const title = [address, label && `label: ${labelSource(address)}`, name]

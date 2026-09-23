@@ -9,6 +9,7 @@ import type {
 import { Address } from './Address'
 import { api, type Direction } from './api'
 import { GraphView } from './GraphView'
+import { Live } from './Live'
 import { PathPanel } from './PathPanel'
 import { DepositTable, WithdrawalTable } from './Tables'
 
@@ -158,7 +159,22 @@ export function App() {
             spellCheck={false}
           />
         </form>
-        {status && <SyncStatus status={status} />}
+        {status && query && <SyncStatus status={status} />}
+        <nav
+          className="flex gap-3 whitespace-nowrap text-xs"
+          style={{ color: 'var(--muted)' }}
+        >
+          <a href="https://l2beat.com" target="_blank" rel="noreferrer">
+            L2BEAT
+          </a>
+          <a
+            href="https://github.com/sekuba/payy-graph"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>
+        </nav>
       </header>
 
       {offline && (
@@ -169,6 +185,8 @@ export function App() {
       {error && !offline && (
         <div style={{ color: 'var(--withdrawal)' }}>{error}</div>
       )}
+      {!query && !offline && <Live onSelect={setQuery} />}
+
       {resolved?.type === 'unknown' && (
         <div style={{ color: 'var(--ink-2)' }}>
           Nothing in the index matches this input.

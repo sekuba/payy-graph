@@ -186,6 +186,95 @@ export type Resolved =
   | { type: 'note'; commitment: string; createdTx?: string; spentTx?: string }
   | { type: 'unknown' }
 
+/** Where a withdrawal's funds came from (src/graph/traces.ts) */
+export interface Trace {
+  /** how its history begins, walking back along its own notes */
+  origin: PathOrigin['type']
+  /** the deposit it begins with, when the origin is one deposit */
+  source?: {
+    depositor: string
+    chain: ChainId
+    time: number
+    amount: number
+    /** transactions between the deposit and the withdrawal */
+    hops: number
+  }
+  /** distinct addresses behind the deposits in its history */
+  depositors: number
+  /** transactions to the nearest of those deposits */
+  nearest?: number
+  /** the history was larger than the walk's limit; counts are minimums */
+  truncated: boolean
+}
+
+/**
+ * Deposits of exactly a withdrawal's amount in the days before it, for an
+ * amount that is not a whole number of USDC: the latest one, and how many
+ */
+export interface AmountMatch {
+  count: number
+  depositor: string
+  chain: ChainId
+  time: number
+}
+
+/** One row of the live view */
+export type LiveEvent =
+  | {
+      type: 'withdrawal'
+      withdrawal: Withdrawal
+      trace?: Trace
+      /** deposits of exactly this amount shortly before (src/graph/live.ts) */
+      match?: AmountMatch
+      /** this is the `nth` of `of` withdrawals to the same recipient */
+      reuse?: { nth: number; of: number }
+    }
+  | { type: 'deposit'; deposit: Deposit }
+  | { type: 'card'; batch: CardBatch }
+
+export interface LiveStats {
+  payyHeight?: number
+  /** time of the latest Payy block */
+  payyTime?: number
+  txns: number
+  /** latest settled height and its L1 time, per chain */
+  settled: Partial<Record<ChainId, { height: number; time: number }>>
+  /** USDC held by the Rollup contract, per chain */
+  locked: Partial<Record<ChainId, number>>
+  day: {
+    deposits: { count: number; amount: number }
+    withdrawals: { count: number; amount: number }
+    card: { payments: number; batches: number; amount: number }
+  }
+  /** withdrawals of the last 30 days with an amount match */
+  matches: { withdrawals: number; matched: number }
+  /** withdrawal recipients, and those that received more than one */
+  reuse: { recipients: number; reused: number }
+  /** over the withdrawals traced so far, in the last 7 days and overall */
+  traces: Record<
+    'week' | 'all',
+    {
+      count: number
+      /** begin with one deposit */
+      single: number
+      medianDepositors?: number
+      medianNearest?: number
+    }
+  >
+}
+
+/** An address with a label or a name, and everything it did with Payy */
+export interface NamedAddress {
+  address: string
+  label?: string
+  ens?: string
+  gns?: string
+  deposits: { count: number; amount: number }
+  withdrawals: { count: number; amount: number }
+  first: number
+  last: number
+}
+
 /** ENS and GNS primary names by lowercase address, verified both ways */
 export type Names = Record<string, { ens?: string; gns?: string }>
 

@@ -110,6 +110,24 @@ const SCHEMA = `
     first_time integer not null -- earliest merge of the batch
   );
 
+  -- Where each withdrawal's funds came from (src/graph/traces.ts)
+  create table if not exists trace (
+    burn_tx text primary key,
+    height integer not null,
+    origin text not null,       -- deposit, migration, merge or limit
+    depositor text,             -- origin deposit, when there is one
+    deposit_chain text,
+    deposit_time integer,
+    deposit_amount integer,
+    deposit_hops integer,       -- transactions from that deposit
+    depositors integer not null, -- distinct depositors in the history
+    nearest integer,            -- transactions to the nearest deposit
+    truncated integer not null  -- the history walk hit its limit
+  );
+  create index if not exists trace_height on trace(height);
+  create index if not exists deposit_time on deposit(time);
+  create index if not exists deposit_amount on deposit(amount, time);
+
   -- ENS and GNS primary names of L1 addresses, cached
   create table if not exists name (
     address text primary key,
@@ -158,9 +176,13 @@ export function one<T>(
   return db.prepare(sql).get(...params) as unknown as T | undefined
 }
 
-/** Runs `fn` inside a single sqlite transaction */
+/**
+ * Runs `fn` inside a single sqlite transaction. It takes the write lock up
+ * front (waiting for the other process if needed), so `fn` should only
+ * write: compute first, then write in here, to keep the lock short.
+ */
 export function transaction<T>(db: Db, fn: () => T): T {
-  db.exec('begin')
+  db.exec('begin immediate')
   try {
     const result = fn()
     db.exec('commit')

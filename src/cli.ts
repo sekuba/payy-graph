@@ -2,7 +2,9 @@ import { check } from './check'
 import { loadConfig } from './config'
 import { openDb } from './db'
 import { deriveRoles } from './graph/roles'
+import { deriveTraces } from './graph/traces'
 import { syncChain } from './l1/indexer'
+import { syncNames } from './l1/names'
 import { JsonRpc } from './l1/rpc'
 import { buildLabels } from './labels'
 import { log } from './log'
@@ -20,6 +22,8 @@ const USAGE = `payy-graph <command>
   trace <address|hash>               print the deposits behind a withdrawal
   check                              consistency checks of the index
   roles                              classify the migration and card batches
+  traces                             trace every withdrawal not traced yet
+  names                              resolve ENS and GNS names of all addresses
   labels                             rebuild the public address labels
   export <file.jsonl>                write the transaction history snapshot
   import <file.jsonl>                load a snapshot and continue from it
@@ -53,6 +57,9 @@ async function main(argv: string[]): Promise<void> {
           }
           jobs.push(syncChain(db, chain, new JsonRpc(url), { follow }))
         }
+        const ethereum = config.rpcUrls.ethereum
+        if (ethereum)
+          jobs.push(syncNames(db, new JsonRpc(ethereum), { follow }))
       }
       // One source failing should not stop the others; report at the end.
       const results = await Promise.allSettled(jobs)
@@ -79,6 +86,16 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'roles': {
       deriveRoles(db)
+      break
+    }
+    case 'traces': {
+      deriveTraces(db, Number.POSITIVE_INFINITY)
+      break
+    }
+    case 'names': {
+      const url = config.rpcUrls.ethereum
+      if (!url) throw new Error('names needs ETHEREUM_RPC_URL')
+      await syncNames(db, new JsonRpc(url), { follow: false })
       break
     }
     case 'labels': {

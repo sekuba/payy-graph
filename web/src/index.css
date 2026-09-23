@@ -146,3 +146,21 @@ th + th {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 20px;
+  row-gap: 2px;
+}
+.stat-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.help-quiet {
+  cursor: help;
+}
+.chip-strong {
+  border-color: var(--withdrawal);
+  color: var(--withdrawal);
+}

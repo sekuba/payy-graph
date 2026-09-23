@@ -1,6 +1,9 @@
 import type {
   AddressSummary,
   Graph,
+  LiveEvent,
+  LiveStats,
+  NamedAddress,
   Names,
   Path,
   Resolved,
@@ -34,6 +37,12 @@ export const api = {
     if (limit) params.set('limit', String(limit))
     return get<Graph>(`/api/graph?${params}`)
   },
+  stats: () => get<LiveStats>('/api/stats'),
+  live: (named: boolean) =>
+    get<{ events: LiveEvent[]; names: Names }>(
+      `/api/live${named ? '?named=1' : ''}`,
+    ),
+  named: () => get<NamedAddress[]>('/api/named'),
   names: (addresses: string[]) => {
     const params = new URLSearchParams()
     for (const a of addresses) params.append('a', a)

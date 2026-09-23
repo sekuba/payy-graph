@@ -234,29 +234,33 @@ export function deriveCardBatches(db: Db): void {
     (inputsOf.all(t.hash) as unknown[]).length === 2 &&
     (countOutputs.get(t.hash) as { n: number }).n === 1
 
-  // in chunks, so a first run over the whole history stays interruptible
+  // in chunks, so a first run over the whole history stays interruptible;
+  // each chunk is computed first and then written in one short transaction
   for (let i = 0; i < burns.length; i += 200) {
     const chunk = burns.slice(i, i + 200)
-    transaction(db, () => {
-      for (const burn of chunk) {
-        const members = new Set<string>([burn.hash])
-        let notes = 0
-        let first = burn.time
-        const queue = [burn.hash]
-        for (const h of queue) {
-          for (const n of inputsOf.all(h) as unknown as NoteRow[]) {
-            const creator = n.created_tx
-              ? (getTxn.get(n.created_tx) as TxnRow | undefined)
-              : undefined
-            if (creator && !members.has(creator.hash) && isMerge(creator)) {
-              members.add(creator.hash)
-              first = Math.min(first, creator.time)
-              queue.push(creator.hash)
-            } else {
-              notes++
-            }
+    const found = chunk.map((burn) => {
+      const members = new Set<string>([burn.hash])
+      let notes = 0
+      let first = burn.time
+      const queue = [burn.hash]
+      for (const h of queue) {
+        for (const n of inputsOf.all(h) as unknown as NoteRow[]) {
+          const creator = n.created_tx
+            ? (getTxn.get(n.created_tx) as TxnRow | undefined)
+            : undefined
+          if (creator && !members.has(creator.hash) && isMerge(creator)) {
+            members.add(creator.hash)
+            first = Math.min(first, creator.time)
+            queue.push(creator.hash)
+          } else {
+            notes++
           }
         }
+      }
+      return { burn, members, notes, first }
+    })
+    transaction(db, () => {
+      for (const { burn, members, notes, first } of found) {
         for (const h of members) insertRole.run(h, burn.hash)
         insertBatch.run(
           burn.hash,

@@ -4,6 +4,7 @@ import express from 'express'
 import type { Config } from './config'
 import type { Db } from './db'
 import { getTxn } from './graph/closure'
+import { liveEvents, liveStats, namedAddresses } from './graph/live'
 import { walkPath } from './graph/path'
 import {
   addressSummary,
@@ -15,7 +16,7 @@ import {
 import { lookupNames } from './l1/names'
 import { JsonRpc } from './l1/rpc'
 import { log } from './log'
-import { TxKind } from './protocol'
+import { CHAINS, type ChainId, TxKind } from './protocol'
 
 /** Largest graph one request may ask for; about half a second of work */
 const MAX_LIMIT = 2000
@@ -23,6 +24,10 @@ const MAX_LIMIT = 2000
 const MAX_START = 50
 /** Most addresses one names request may ask for */
 const MAX_NAMES = 200
+/** Rows of the live view */
+const LIVE_ROWS = 60
+/** How long the USDC balances of the Rollup contracts are reused */
+const LOCKED_TTL_MS = 5 * 60_000
 
 /**
  * Small JSON API over the index. The web UI in `web/` is its only client. It
@@ -39,6 +44,7 @@ export function serve(db: Db, config: Config): void {
   const cache = new Cache(256 * 1024 * 1024)
   const ethereum = config.rpcUrls.ethereum
   const rpc = ethereum ? new JsonRpc(ethereum) : undefined
+  const locked = lockedUsdc(config)
 
   app.use('/api', (_req, res, next) => {
     if (config.corsOrigin) {
@@ -103,6 +109,27 @@ export function serve(db: Db, config: Config): void {
     }),
   )
 
+  /** figures for the live view */
+  app.get('/api/stats', async (_req, res) => {
+    const body = cache.get('stats', 30, () => JSON.stringify(liveStats(db)))
+    const stats = { ...JSON.parse(body), locked: await locked() }
+    res.set('cache-control', 'public, max-age=30').json(stats)
+  })
+
+  /** ?named=1: the newest deposits, withdrawals and card batches */
+  app.get(
+    '/api/live',
+    cached(15, (req) =>
+      liveEvents(db, { named: req.query.named === '1', limit: LIVE_ROWS }),
+    ),
+  )
+
+  /** every labelled or named address that used Payy, with its totals */
+  app.get(
+    '/api/named',
+    cached(300, () => namedAddresses(db)),
+  )
+
   /** ?a=<address>&a=<address>: primary ENS and GNS names, verified both ways */
   app.get('/api/names', async (req, res) => {
     const a = req.query.a
@@ -143,6 +170,41 @@ export function serve(db: Db, config: Config): void {
       cors: config.corsOrigin ?? 'none',
     })
   })
+}
+
+/**
+ * USDC held by each chain's Rollup contract, read with `balanceOf` and
+ * reused for a few minutes; a chain whose RPC fails is left out
+ */
+function lockedUsdc(
+  config: Config,
+): () => Promise<Partial<Record<ChainId, number>>> {
+  let value: Partial<Record<ChainId, number>> = {}
+  let at = 0
+  return async () => {
+    if (Date.now() - at < LOCKED_TTL_MS) return value
+    at = Date.now()
+    const next: Partial<Record<ChainId, number>> = {}
+    await Promise.all(
+      Object.values(CHAINS).map(async (chain) => {
+        const url = config.rpcUrls[chain.id]
+        if (!url) return
+        try {
+          const [balance] = await new JsonRpc(url).ethCalls([
+            {
+              to: chain.usdc,
+              data: `0x70a08231${chain.rollup.slice(2).padStart(64, '0')}`,
+            },
+          ])
+          if (balance) next[chain.id] = Number(BigInt(balance))
+        } catch {
+          // shown without it
+        }
+      }),
+    )
+    value = next
+    return value
+  }
 }
 
 function hash(input: string): string {

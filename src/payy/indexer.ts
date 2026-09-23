@@ -1,8 +1,12 @@
 import { type Db, getSync, setSync, transaction } from '../db'
 import { deriveRoles } from '../graph/roles'
+import { deriveTraces } from '../graph/traces'
 import { log, sleep } from '../log'
 import { TxKind, ZERO_COMMITMENT } from '../protocol'
 import type { PayyNode, TxnSnapshot } from './api'
+
+/** time per catch-up spent tracing older withdrawals */
+const TRACE_BUDGET_MS = 5_000
 
 /** sync table key of the node's pagination cursor */
 export const CURSOR_KEY = 'payy_cursor'
@@ -84,7 +88,8 @@ export function insertTxns(db: Db, records: TxnRecord[]): void {
 /**
  * Pages through the node's transaction history from the saved cursor. With
  * `follow` it keeps polling for new blocks once it has caught up. Each time
- * it catches up, the roles of the new transactions are derived.
+ * it catches up, the roles of the new transactions are derived and the new
+ * withdrawals traced.
  */
 export async function syncPayy(
   db: Db,
@@ -113,8 +118,10 @@ export async function syncPayy(
       }
     }
     if (txns.length === 0 || !after) {
-      // caught up: classify what arrived (a first run takes a few minutes)
+      // caught up: classify what arrived (a first run takes a few minutes),
+      // trace the new withdrawals and a slice of the older ones
       deriveRoles(db)
+      deriveTraces(db, TRACE_BUDGET_MS)
       if (!options.follow) break
       await sleep(10_000)
     }

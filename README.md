@@ -55,6 +55,16 @@ wallets, so the walk stops at them and shows each as one node
 A card payment that repeats on the same day and hour of each month for at
 least three months is marked as recurring.
 
+## Where a withdrawal came from
+
+For every withdrawal (except card batches) the sync stores a trace
+([`src/graph/traces.ts`](src/graph/traces.ts)): whether its history begins
+with a single deposit, the migration, or a merge of two histories; and, over
+its backward closure of up to 400 transactions, how many distinct addresses
+deposited the funds in it and how many transactions away the nearest deposit
+is. The page shown without a query lists the newest activity with these
+traces and their medians.
+
 ## Labels and names
 
 Addresses operated by Payy are labelled in `src/protocol.ts`. Other public
@@ -100,6 +110,8 @@ pnpm dev:all                # all three above in one terminal (sync --follow, se
 pnpm dev trace <address>    # command line: deposits behind each withdrawal
 pnpm dev check              # consistency checks
 pnpm dev roles              # classify migration and card batches (sync does this too)
+pnpm dev traces             # trace all withdrawals now (sync does it a slice at a time)
+pnpm dev names              # resolve ENS and GNS names of all addresses (sync keeps them fresh)
 pnpm dev labels             # rebuild public labels (needs ETHERSCAN_API_KEY for all of it)
 pnpm dev export graph.jsonl # the whole history as public inputs, one tx per line
 pnpm dev import graph.jsonl # restore it and continue syncing from there
@@ -137,6 +149,9 @@ GET /api/address/:address       withdrawals to and deposits from an address
 GET /api/path/:burnTx           a withdrawal's history: origin and released notes
 GET /api/graph?tx=&dir=back|forward|both&limit=
 GET /api/names?a=&a=                ENS and GNS primary names of L1 addresses
+GET /api/stats                      live figures: heights, 24h activity, traces
+GET /api/live?named=1               newest deposits, withdrawals, card batches
+GET /api/named                      labelled and named addresses with totals
 ```
 
 Amounts are integers in micro USDC. Hashes are hex without `0x`. A graph
