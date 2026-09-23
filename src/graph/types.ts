@@ -9,6 +9,11 @@ export interface TxnNode {
   kind: TxKind
   /** minted or burned amount */
   amount: number
+  /**
+   * how much of what it created can end up in the focused withdrawals; set
+   * on backward views of withdrawals (src/graph/sources.ts)
+   */
+  reach?: number
 }
 
 export interface NoteEdge {
@@ -28,6 +33,15 @@ export interface NoteEdge {
   /** otherwise the bounds that follow from the known amounts */
   min: number
   max?: number
+  /** how much of it can end up in the focused withdrawals, like `TxnNode.reach` */
+  reach?: number
+}
+
+/** How much of the focused withdrawals can have come from one deposit */
+export interface Share {
+  min: number
+  /** missing when the graph was truncated: funds can reach it unseen */
+  max?: number
 }
 
 export interface Deposit {
@@ -42,6 +56,8 @@ export interface Deposit {
   amount: number
   /** transactions between this deposit and the focused transaction */
   hops?: number
+  /** its part in the focused withdrawals (src/graph/sources.ts) */
+  share?: Share
 }
 
 export interface Withdrawal {
@@ -61,6 +77,8 @@ export interface Withdrawal {
   substituted: boolean
   /** transactions between the focused transaction and this withdrawal */
   hops?: number
+  /** how much of what it kept can end up in the focus, like `TxnNode.reach` */
+  reach?: number
 }
 
 /**
@@ -158,6 +176,8 @@ export interface Path {
   /** oldest first */
   hops: PathHop[]
   origin: PathOrigin
+  /** the deposits in its history with their share of it, largest first */
+  sources: Deposit[]
 }
 
 export interface Graph {

@@ -2,7 +2,20 @@ import { useState } from 'react'
 import type { Deposit, Withdrawal } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { date, FRONTED, l1TxUrl, payyTxUrl, shortHex, usdc } from './format'
+import {
+  between,
+  DUST,
+  date,
+  FRONTED,
+  l1TxUrl,
+  payyTxUrl,
+  shortHex,
+  usdc,
+} from './format'
+
+/** What the share of a deposit means, for its column header */
+const SHARE =
+  'How much of the withdrawal can have come from this deposit. Funds are fungible within a transaction, so this is a range: every note caps what passes through it, and what the other deposits cannot cover must have come from this one.'
 
 /** Rows shown before "show all" */
 const ROWS = 10
@@ -28,12 +41,21 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
   const [shown, more] = useRows(deposits)
   const total = deposits.reduce((a, d) => a + d.amount, 0)
   const showHops = deposits.some((d) => d.hops !== undefined)
+  // in a truncated graph only lower bounds are known, mostly zero
+  const known = (d: Deposit) =>
+    d.share !== undefined && (d.share.max !== undefined || d.share.min > 0)
+  const showShare = deposits.some(known)
   return (
     <table className="stack w-full text-left text-xs">
       <thead style={{ color: 'var(--muted)' }}>
         <tr>
           <th className="py-1 font-normal">Deposit from</th>
           <th className="py-1 text-right font-normal">USDC</th>
+          {showShare && (
+            <th className="help py-1 text-right font-normal" title={SHARE}>
+              In withdrawal
+            </th>
+          )}
           {showHops && <th className="py-1 text-right font-normal">Hops</th>}
           <th className="py-1 font-normal">Chain</th>
           <th className="py-1 font-normal">Time</th>
@@ -43,13 +65,26 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
       </thead>
       <tbody>
         {shown.map((d) => (
-          <tr key={d.mintHash} className="row hairline border-t">
+          <tr
+            key={d.mintHash}
+            className="row hairline border-t"
+            style={
+              d.share?.max !== undefined && d.share.max < DUST
+                ? { color: 'var(--muted)' }
+                : undefined
+            }
+          >
             <td className="py-1">
               <Address address={d.depositor} chain={d.chain} full />
             </td>
             <td className="mono py-1 text-right">
               {usdc(d.amount)} <span className="sm:hidden">USDC</span>
             </td>
+            {showShare && (
+              <td className="mono py-1 text-right" data-label="in withdrawal">
+                {d.share && known(d) && between(d.share.min, d.share.max)}
+              </td>
+            )}
             {showHops && (
               <td className="mono py-1 text-right" data-label="hops">
                 {d.hops ?? ''}
@@ -77,7 +112,7 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
           <tr className="hairline border-t" style={{ color: 'var(--ink-2)' }}>
             <td className="py-1">{deposits.length} deposits</td>
             <td className="mono py-1 text-right">{usdc(total)}</td>
-            <td colSpan={showHops ? 5 : 4} />
+            <td colSpan={4 + (showHops ? 1 : 0) + (showShare ? 1 : 0)} />
           </tr>
         )}
       </tbody>
@@ -114,6 +149,11 @@ export function WithdrawalTable({
             key={w.burnHash}
             className={`row hairline border-t ${selected?.has(w.txHash) ? 'selected' : ''} ${onToggle ? 'cursor-pointer' : ''}`}
             onClick={() => onToggle?.(w.txHash)}
+            style={
+              w.reach !== undefined && w.reach < DUST
+                ? { color: 'var(--muted)' }
+                : undefined
+            }
           >
             <td className="py-1">
               <Address address={w.recipient} chain={w.chain} full />

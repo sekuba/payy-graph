@@ -133,3 +133,38 @@ export function collect(
   }
   return { txns, notes, hops, boundaries, truncated }
 }
+
+/** Transactions loaded along side branches, on top of a subgraph's own */
+const SIDE_LIMIT = 200
+
+/**
+ * The subgraph plus a short forward walk from every note that leaves it,
+ * for amount inference only. A payment that is withdrawn or paid with the
+ * card a few transactions later gets its value from there, and with it the
+ * change its transaction kept, which the subgraph alone leaves open. (A
+ * wallet that pays 3.06 out of 3.067 keeps 0.007, which only shows once the
+ * 3.06 is followed to its withdrawal.) Nearest first, up to `limit`.
+ */
+export function withSideBranches(
+  db: Db,
+  sub: Pick<Subgraph, 'txns' | 'notes' | 'boundaries'>,
+  limit = SIDE_LIMIT,
+): Pick<Subgraph, 'txns' | 'notes' | 'boundaries'> {
+  const starts = new Set<string>()
+  for (const n of sub.notes.values()) {
+    const to = n.spent_tx
+    if (to && !sub.txns.has(to) && !sub.boundaries.has(to)) starts.add(to)
+  }
+  if (starts.size === 0) return sub
+  const side = collect(
+    db,
+    [...starts],
+    { backward: false, forward: true },
+    limit,
+  )
+  return {
+    txns: new Map([...side.txns, ...sub.txns]),
+    notes: new Map([...side.notes, ...sub.notes]),
+    boundaries: new Map([...side.boundaries, ...sub.boundaries]),
+  }
+}

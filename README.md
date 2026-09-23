@@ -31,6 +31,8 @@ repository, are collected in [`src/protocol.ts`](src/protocol.ts). In short:
 - Note values are hidden, but every transaction conserves value and mint and
   burn amounts are public, so amounts along paths without splits or merges
   follow by propagation ([`src/graph/amounts.ts`](src/graph/amounts.ts)).
+  Notes that leave a history are followed a short way forward first, so a
+  payment withdrawn in full also fixes the change its sender kept.
 
 ## What the graph does not walk through
 
@@ -64,6 +66,16 @@ its backward closure of up to 400 transactions, how many distinct addresses
 deposited the funds in it and how many transactions away the nearest deposit
 is. The page shown without a query lists the newest activity with these
 traces and their medians.
+
+A withdrawal's graph also gives each deposit in it a range: how much of the
+withdrawal can have come from it ([`src/graph/sources.ts`](src/graph/sources.ts)).
+Funds are fungible within a transaction, but every note caps what passes
+through it, and what the other deposits cannot cover must have come from
+this one. A wallet that pays 3.06 out of 3.067 keeps 0.007, and whatever it
+deposited before can then have contributed at most 0.007 to its later
+withdrawals. The parts of the graph that can put less than one cent into
+the withdrawal are drawn faint; Payy withdrawals are whole cents. When the
+history is larger than the walk, only the lower bounds are given.
 
 ## Labels and names
 

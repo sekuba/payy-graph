@@ -9,8 +9,10 @@ import {
   type NoteRow,
   outputsOf,
   type TxnRow,
+  withSideBranches,
 } from './closure'
 import {
+  bySize,
   cardBatchOf,
   DEFAULT_LIMIT,
   depositOf,
@@ -19,6 +21,7 @@ import {
   withdrawalOf,
 } from './queries'
 import { migrationSummary, Role, roleOf } from './roles'
+import { flowInto } from './sources'
 import type { Destination, Path, PathHop, PathOrigin } from './types'
 
 const MAX_HOPS = 300
@@ -88,8 +91,8 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     txn = getTxn(db, previous.created_tx)
   }
 
-  // Amounts: the backward closure, plus the tx that spent each released note,
-  // so a payment withdrawn in full gets its value from that withdrawal, and
+  // Amounts: the backward closure, plus side branches followed forward, so
+  // a payment withdrawn in full gets its value from that withdrawal, and
   // the card batch of each card payment, which bounds it.
   const closure = collect(
     db,
@@ -101,26 +104,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     txn: t,
     notes: outputsOf(db, t.hash).filter((n) => !consumed.has(n.commitment)),
   }))
-  for (const { notes } of released) {
-    for (const n of notes) {
-      if (!n.spent_tx || closure.txns.has(n.spent_tx)) continue
-      const role = roleOf(db, n.spent_tx)
-      if (role?.role === Role.Card) {
-        closure.boundaries.set(n.spent_tx, role)
-        continue
-      }
-      const spender = getTxn(db, n.spent_tx)
-      if (!spender) continue
-      closure.txns.set(spender.hash, spender)
-      for (const m of [
-        ...inputsOf(db, spender.hash),
-        ...outputsOf(db, spender.hash),
-      ]) {
-        closure.notes.set(m.commitment, m)
-      }
-    }
-  }
-  const bounds = inferWithBatches(db, closure)
+  const bounds = inferWithBatches(db, withSideBranches(db, closure))
   // what the migrated note held follows from what the wallet did with it
   if (origin.type === 'migration' && followed) {
     const b = bounds.get(followed.commitment)
@@ -131,7 +115,14 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     .map(({ txn, notes }) => hopOf(db, txn, notes[0], bounds))
     .sort((a, b) => a.time - b.time || a.height - b.height)
   markRecurring(hops)
-  return { withdrawal: withdrawalOf(db, burn), hops, origin }
+  const { shares } = flowInto(closure, bounds, [burn.hash])
+  const sources = [...closure.txns.values()]
+    .flatMap((t) => {
+      const d = t.kind === TxKind.Mint && depositOf(db, t)
+      return d ? [{ ...d, share: shares.get(t.hash) }] : []
+    })
+    .sort(bySize)
+  return { withdrawal: withdrawalOf(db, burn), hops, origin, sources }
 }
 
 /**

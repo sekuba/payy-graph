@@ -1,8 +1,19 @@
 import { useState } from 'react'
-import type { Destination, Path, PathHop } from '../../src/graph/types'
+import type { Deposit, Destination, Path, PathHop } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { date, FRONTED, payyTxUrl, shortHex, usdc } from './format'
+import {
+  between,
+  DUST,
+  date,
+  FRONTED,
+  payyTxUrl,
+  shortHex,
+  usdc,
+} from './format'
+
+/** Deposits named in the summary of a history's sources */
+const NAMED_SOURCES = 3
 
 /** Rows of a long history shown before "show all" */
 const INITIAL_ROWS = 12
@@ -310,17 +321,81 @@ function Origin({ path }: { path: Path }) {
       return (
         <span>
           Before {date(o.time)} the funds came from two separate notes, merged
-          then; both histories are in the graph below.
+          then; both histories are in the graph below. <Sources path={path} />
         </span>
       )
     default:
       return (
         <span>
           History longer than {path.hops.length} transactions
-          {first ? `, shown from ${date(first.time)}` : ''}.
+          {first ? `, shown from ${date(first.time)}` : ''}.{' '}
+          <Sources path={path} />
         </span>
       )
   }
+}
+
+/**
+ * Which deposits the withdrawal can be shown to come from: those that must
+ * have supplied at least a cent of it, and a bound on all the others
+ */
+function Sources({ path }: { path: Path }) {
+  const w = path.withdrawal
+  const named = path.sources
+    .filter((d) => (d.share?.min ?? 0) >= DUST)
+    .slice(0, NAMED_SOURCES)
+  const rest = path.sources.filter((d) => !named.includes(d))
+  const covered = named.reduce((a, d) => a + (d.share?.min ?? 0), 0)
+  const bounded = rest.every((d) => d.share?.max !== undefined)
+  const others = Math.min(
+    w.amount - covered,
+    rest.reduce((a, d) => a + (d.share?.max ?? 0), 0),
+  )
+  const count = (n: number) => `${n} ${n === 1 ? 'deposit' : 'deposits'}`
+  return (
+    <>
+      {named.map((d, i) => (
+        <span key={d.mintHash}>
+          {i === 0 ? '' : ' '}
+          {d.share?.min === d.share?.max ? '' : 'At least '}
+          <span className="mono">{usdc(d.share?.min ?? 0)}</span>
+          {i === 0 ? ` of the ${usdc(w.amount)} USDC` : ' USDC'} came from{' '}
+          <DepositText d={d} />.
+        </span>
+      ))}
+      {rest.length > 0 &&
+        (bounded ? (
+          <span>
+            {' '}
+            {named.length === 0
+              ? `The ${count(rest.length)}`
+              : rest.length === 1
+                ? 'The other deposit'
+                : `The other ${count(rest.length)}`}{' '}
+            in its history can have contributed at most{' '}
+            <span className="mono">{usdc(others)}</span> USDC
+            {rest.length > 1 ? ' together' : ''}.
+          </span>
+        ) : (
+          <span>
+            {' '}
+            {count(rest.length)} {named.length > 0 ? 'more ' : ''}
+            {rest.length === 1 ? 'is' : 'are'} in its history, walked back as
+            far as the view goes.
+          </span>
+        ))}
+    </>
+  )
+}
+
+function DepositText({ d }: { d: Deposit }) {
+  return (
+    <>
+      the deposit of {usdc(d.amount)} USDC by{' '}
+      <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} /> on{' '}
+      {date(d.time)}
+    </>
+  )
 }
 
 function colorOf(hop: PathHop): string {
@@ -340,11 +415,7 @@ function amountOf(hop: PathHop): string {
   if (hop.amount !== undefined) return usdc(hop.amount)
   const out = hop.out
   if (!out) return ''
-  if (out.value !== undefined) return usdc(out.value)
-  if (out.max === undefined) return out.min > 0 ? `≥ ${usdc(out.min)}` : '?'
-  return out.min > 0
-    ? `${usdc(out.min)} – ${usdc(out.max)}`
-    : `≤ ${usdc(out.max)}`
+  return between(out.value ?? out.min, out.value ?? out.max)
 }
 
 function Counterparty({ hop }: { hop: PathHop }) {

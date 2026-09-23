@@ -8,8 +8,10 @@ import {
   type NoteRow,
   type Subgraph,
   type TxnRow,
+  withSideBranches,
 } from './closure'
 import { cardBatch, migrationSummary, Role } from './roles'
+import { flowInto } from './sources'
 import type {
   AddressSummary,
   CardBatch,
@@ -177,7 +179,9 @@ export function inferWithBatches(
 
 /**
  * The graph around one or more transactions. Backward reaches the deposits
- * that funded them, forward the withdrawals they funded.
+ * that funded them, forward the withdrawals they funded. Seen back from
+ * withdrawals, it also tells how much of them can have come from each
+ * deposit, and how much of each note can end up in them.
  */
 export function graphAround(
   db: Db,
@@ -186,17 +190,23 @@ export function graphAround(
   limit = DEFAULT_LIMIT,
 ): Graph {
   const sub = collect(db, txHashes, direction, limit)
-  const bounds = inferWithBatches(db, sub)
+  const bounds = inferWithBatches(db, withSideBranches(db, sub))
+  const burns = txHashes.filter((h) => sub.txns.get(h)?.kind === TxKind.Burn)
+  const flow =
+    !direction.forward && burns.length > 0 && burns.length === txHashes.length
+      ? flowInto(sub, bounds, burns)
+      : undefined
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
   for (const t of sub.txns.values()) {
     const hops = sub.hops.get(t.hash)
     if (t.kind === TxKind.Mint) {
       const d = depositOf(db, t)
-      if (d) deposits.push({ ...d, hops })
+      if (d) deposits.push({ ...d, hops, share: flow?.shares.get(t.hash) })
     }
     if (t.kind === TxKind.Burn) {
-      withdrawals.push({ ...withdrawalOf(db, t), hops })
+      const reach = burns.includes(t.hash) ? undefined : flow?.txns.get(t.hash)
+      withdrawals.push({ ...withdrawalOf(db, t), hops, reach })
     }
   }
   const roles = new Set([...sub.boundaries.values()].map((r) => r.role))
@@ -208,6 +218,7 @@ export function graphAround(
   // nearest first: the deposits few hops away are the ones that matter
   const nearestFirst = (a: { hops?: number; time: number }, b: typeof a) =>
     (a.hops ?? 0) - (b.hops ?? 0) || a.time - b.time
+  // unless their share is known: then the largest first
   return {
     txns: [...sub.txns.values()]
       .sort((a, b) => a.height - b.height || a.idx - b.idx)
@@ -217,6 +228,7 @@ export function graphAround(
         time: t.time,
         kind: t.kind,
         amount: t.amount,
+        reach: flow?.txns.get(t.hash),
       })),
     notes: [...sub.notes.values()].map((n) => {
       const source = n.created_tx ? sub.boundaries.get(n.created_tx) : undefined
@@ -231,14 +243,23 @@ export function graphAround(
         }),
         ...(sink?.role === Role.Card && { batch: sink.batch }),
         ...(bounds.get(n.commitment) ?? { min: 0 }),
+        ...(flow && { reach: flow.notes.get(n.commitment) ?? 0 }),
       }
     }),
-    deposits: deposits.sort(nearestFirst),
+    deposits: deposits.sort((a, b) =>
+      flow ? bySize(a, b) || nearestFirst(a, b) : nearestFirst(a, b),
+    ),
     withdrawals: withdrawals.sort(nearestFirst),
     migration: roles.has(Role.Migration) ? migrationSummary(db) : undefined,
     batches: [...batches].flatMap((b) => cardBatchOf(db, b) ?? []),
     truncated: sub.truncated,
   }
+}
+
+/** Deposits with the largest share first: by its upper, then lower bound */
+export function bySize(a: Deposit, b: Deposit): number {
+  const size = (d: Deposit) => d.share?.max ?? d.share?.min ?? 0
+  return size(b) - size(a) || (b.share?.min ?? 0) - (a.share?.min ?? 0)
 }
 
 /** Withdrawals to and deposits from an L1 address */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Graph, NoteEdge } from '../../src/graph/types'
 import { useAddressText } from './Address'
-import { date, shortHex, usdc } from './format'
+import { DUST, date, shortHex, usdc } from './format'
 import {
   CARD_ID,
   type Group,
@@ -15,6 +15,9 @@ import {
 
 /** Graphs up to this many transactions are drawn without collapsing runs */
 const SMALL = 12
+
+/** Parts of the graph that can put less than a cent into the focus are faint */
+const faint = (reach: number | undefined) => reach !== undefined && reach < DUST
 
 const KIND = {
   1: { name: 'Send', color: 'var(--send)' },
@@ -182,7 +185,11 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
           ))}
         </g>
       </svg>
-      <Legend truncated={graph.truncated} onMore={onMore} />
+      <Legend
+        truncated={graph.truncated}
+        dust={graph.txns.some((t) => faint(t.reach))}
+        onMore={onMore}
+      />
       {hover && <Tooltip hover={hover} graph={graph} />}
     </div>
   )
@@ -209,6 +216,13 @@ function Edge({
 }) {
   const { notes } = edge
   const determined = notes.every((n) => n.value !== undefined)
+  // payments that leave the view are not faint: they do not fund it by
+  // definition, but they are part of the story
+  const dim =
+    edge.from !== undefined &&
+    edge.to !== undefined &&
+    !edge.to.virtual &&
+    notes.every((n) => faint(n.reach))
   const leaves = edge.from && !edge.to
   const card = edge.to?.virtual === 'card'
   const label =
@@ -221,6 +235,7 @@ function Edge({
     <g
       onPointerMove={(e) => onHover(e.clientX, e.clientY)}
       onPointerLeave={onLeave}
+      opacity={dim ? 0.3 : undefined}
     >
       {/* wide invisible hit target */}
       <path d={edge.path} fill="none" stroke="transparent" strokeWidth={14} />
@@ -276,6 +291,9 @@ function Node({
 }) {
   const { txn, group, virtual } = node
   const kind = virtual ? VIRTUAL[virtual] : KIND[txn?.kind ?? 1]
+  const dim = group
+    ? group.txns.every((t) => faint(t.reach))
+    : !focused && faint(txn?.reach)
   const title = group ? `${group.txns.length} sends` : kind.name
   const detail = group
     ? groupDetail(group)
@@ -293,6 +311,7 @@ function Node({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
+      opacity={dim ? 0.35 : undefined}
     >
       <rect
         width={NODE_W}
@@ -357,9 +376,12 @@ function nodeLabels(
 
 function Legend({
   truncated,
+  dust,
   onMore,
 }: {
   truncated: boolean
+  /** some notes can put less than a cent into the focus */
+  dust: boolean
   onMore?: () => void
 }) {
   return (
@@ -390,6 +412,25 @@ function Legend({
         </svg>
         amount not determined
       </span>
+      {dust && (
+        <span
+          className="help flex items-center gap-1.5"
+          title="Funds are fungible within a transaction, but every note caps what passes through it: from the faint part of the graph, less than one cent can have ended up in the withdrawal. Payy withdrawals are whole cents."
+        >
+          <svg width="20" height="6" aria-hidden="true">
+            <line
+              x1="0"
+              y1="3"
+              x2="20"
+              y2="3"
+              stroke="var(--axis)"
+              strokeWidth="2"
+              opacity={0.3}
+            />
+          </svg>
+          under 1 cent reaches the withdrawal
+        </span>
+      )}
       {truncated &&
         (onMore ? (
           <button type="button" className="toggle" onClick={onMore}>
@@ -486,6 +527,12 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
         <div style={{ color: 'var(--ink-2)' }}>
           height {txn.height} · {date(txn.time)}
         </div>
+        {txn.reach !== undefined && txn.kind !== 3 && (
+          <div style={{ color: 'var(--ink-2)' }}>
+            at most <span className="mono">{usdc(txn.reach)}</span> of it can be
+            in the withdrawal
+          </div>
+        )}
         <div className="mono" style={{ color: 'var(--muted)' }}>
           {shortHex(txn.hash, 8)}
         </div>
@@ -528,6 +575,12 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
                 : 'spent'
               : 'unspent'}
       </div>
+      {n.reach !== undefined && n.to && !n.continues && (
+        <div style={{ color: 'var(--ink-2)' }}>
+          at most <span className="mono">{usdc(n.reach)}</span> of it can be in
+          the withdrawal
+        </div>
+      )}
       <div className="mono" style={{ color: 'var(--muted)' }}>
         note {shortHex(n.commitment, 8)}
       </div>

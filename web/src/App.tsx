@@ -143,7 +143,18 @@ export function App() {
   return (
     <div className="flex h-full flex-col gap-3 p-2 sm:p-3">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h1 className="whitespace-nowrap font-semibold">Payy spend graph</h1>
+        <h1 className="whitespace-nowrap font-semibold">
+          <a
+            href="./"
+            onClick={(e) => {
+              e.preventDefault()
+              setQuery('')
+              setInput('')
+            }}
+          >
+            Payy explorer
+          </a>
+        </h1>
         <form
           className="order-last w-full sm:order-none sm:w-auto sm:flex-1"
           onSubmit={(e) => {
