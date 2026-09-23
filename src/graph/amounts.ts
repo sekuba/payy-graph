@@ -22,24 +22,25 @@ export interface Bounds {
  * its transaction.
  */
 export function inferAmounts(graph: Subgraph): Map<string, Bounds> {
-  const equations = [...graph.txns.values()].map((t) => {
-    const inputs: string[] = []
-    const outputs: string[] = []
-    for (const n of graph.notes.values()) {
-      if (n.spent_tx === t.hash) inputs.push(n.commitment)
-      if (n.created_tx === t.hash) outputs.push(n.commitment)
-    }
-    return {
-      inputs,
-      outputs,
-      minted: t.kind === TxKind.Mint ? t.amount : 0,
-      burned: t.kind === TxKind.Burn ? t.amount : 0,
-    }
-  })
+  const equations = new Map(
+    [...graph.txns.values()].map((t) => [
+      t.hash,
+      {
+        inputs: [] as string[],
+        outputs: [] as string[],
+        minted: t.kind === TxKind.Mint ? t.amount : 0,
+        burned: t.kind === TxKind.Burn ? t.amount : 0,
+      },
+    ]),
+  )
+  for (const n of graph.notes.values()) {
+    if (n.spent_tx) equations.get(n.spent_tx)?.inputs.push(n.commitment)
+    if (n.created_tx) equations.get(n.created_tx)?.outputs.push(n.commitment)
+  }
 
   // Exact values: sum(inputs) - sum(outputs) = burned - minted, one row per tx
   const value = solve(
-    equations.map((eq) => {
+    [...equations.values()].map((eq) => {
       const row = new Map<string, bigint>()
       for (const n of eq.inputs) row.set(n, (row.get(n) ?? 0n) + 1n)
       for (const n of eq.outputs) row.set(n, (row.get(n) ?? 0n) - 1n)
@@ -74,7 +75,7 @@ export function inferAmounts(graph: Subgraph): Map<string, Bounds> {
         tightened = true
       }
     }
-    for (const eq of equations) {
+    for (const eq of equations.values()) {
       const side = (
         own: string[],
         other: string[],
@@ -130,35 +131,53 @@ interface Equation {
  * dropped.
  */
 function solve(equations: Equation[]): Map<string, number> {
-  const rows = equations.map((eq) => ({
+  type Row = { coefficients: Map<string, Fraction>; constant: Fraction }
+  const rows: Row[] = equations.map((eq) => ({
     coefficients: new Map(
-      [...eq.coefficients].map(([k, v]) => [k, fraction(v)] as const),
+      [...eq.coefficients]
+        .filter(([, v]) => v !== 0n)
+        .map(([k, v]) => [k, fraction(v)] as const),
     ),
     constant: fraction(eq.constant),
   }))
-  const variables = [
-    ...new Set(rows.flatMap((r) => [...r.coefficients.keys()])),
-  ]
-  const pivots: { variable: string; row: (typeof rows)[number] }[] = []
-  for (const variable of variables) {
-    const row = rows.find(
-      (r) =>
-        !pivots.some((p) => p.row === r) &&
-        !isZero(r.coefficients.get(variable) ?? ZERO),
-    )
+  // rows each variable occurs in, kept up to date as elimination fills in,
+  // so a pivot only touches the rows that contain its variable
+  const occurs = new Map<string, Set<Row>>()
+  for (const row of rows) {
+    for (const k of row.coefficients.keys()) {
+      const set = occurs.get(k) ?? new Set()
+      set.add(row)
+      occurs.set(k, set)
+    }
+  }
+  const used = new Set<Row>()
+  const pivots: { variable: string; row: Row }[] = []
+  for (const [variable, rowsWith] of occurs) {
+    // the sparsest unused row keeps fill-in low
+    let row: Row | undefined
+    for (const r of rowsWith) {
+      if (used.has(r)) continue
+      if (!row || r.coefficients.size < row.coefficients.size) row = r
+    }
     if (!row) continue
+    used.add(row)
     const scale = inverse(row.coefficients.get(variable) ?? ONE)
     for (const [k, v] of row.coefficients)
       row.coefficients.set(k, mul(v, scale))
     row.constant = mul(row.constant, scale)
-    for (const other of rows) {
+    for (const other of [...rowsWith]) {
       if (other === row) continue
       const factor = other.coefficients.get(variable)
-      if (!factor || isZero(factor)) continue
+      if (!factor) continue
       for (const [k, v] of row.coefficients) {
         const next = sub(other.coefficients.get(k) ?? ZERO, mul(factor, v))
-        if (isZero(next)) other.coefficients.delete(k)
-        else other.coefficients.set(k, next)
+        if (isZero(next)) {
+          other.coefficients.delete(k)
+          occurs.get(k)?.delete(other)
+        } else {
+          other.coefficients.set(k, next)
+          occurs.get(k)?.add(other)
+        }
       }
       other.constant = sub(other.constant, mul(factor, row.constant))
     }

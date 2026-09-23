@@ -8,8 +8,15 @@ import type {
 
 export type Direction = 'back' | 'forward' | 'both'
 
+/**
+ * Where the API lives. Empty when the UI is served by the API server itself
+ * (or proxied by Vite in development); the API's own origin when the UI is
+ * hosted elsewhere, e.g. on GitHub Pages.
+ */
+const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path)
+  const res = await fetch(API_URL + path)
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return (await res.json()) as T
 }

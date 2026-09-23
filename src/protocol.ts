@@ -115,6 +115,8 @@ export const TOPICS = {
     '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
 } as const
 
+export const TREASURY_LABEL = 'Payy treasury'
+
 /**
  * Addresses operated by Payy or its service providers, as observed onchain.
  * Labels are shown next to the address, nothing is hidden.
@@ -132,9 +134,9 @@ export const KNOWN_ADDRESSES: Record<string, string> = {
   // Deposited 2.4M USDC on Polygon in 2025; funded onchain by the
   // PayyMultisig and by 0x9417d1…, the address that received Payy's first
   // test withdrawals. Their notes seed the pools Payy pays users from.
-  '0x710dc565abdc3c0804c76d2978754c6e5d1e3330': 'Payy treasury',
-  '0xbff07f212bbf60143d7672490ee901b8df34eb9d': 'Payy treasury',
-  '0x9417d18483c75155dcf2690ea85166f13beff852': 'Payy treasury',
+  '0x710dc565abdc3c0804c76d2978754c6e5d1e3330': TREASURY_LABEL,
+  '0xbff07f212bbf60143d7672490ee901b8df34eb9d': TREASURY_LABEL,
+  '0x9417d18483c75155dcf2690ea85166f13beff852': TREASURY_LABEL,
   '0x5343b904bf837befb2f5a256b0cd5fbf30503d38': 'Payy prover',
   // Forwarder contracts that receive the notes users spend with the Payy
   // card, merged by a collector wallet and withdrawn in batches: 8k

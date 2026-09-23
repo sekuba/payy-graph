@@ -4,6 +4,7 @@
   "private": true,
   "description": "Indexes the public spend graph of the Payy network and shows which deposits fund a withdrawal.",
   "license": "MIT",
+  "packageManager": "pnpm@12.5.1",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -13,7 +14,8 @@
     "sync": "tsx src/cli.ts sync",
     "serve": "tsx src/cli.ts serve",
     "web": "vite",
-    "build": "vite build && tsc -p tsconfig.json",
+    "build": "pnpm build:web && tsc -p tsconfig.json",
+    "build:web": "vite build",
     "start": "NODE_ENV=production concurrently -k -n sync,serve -c blue,green \"node dist/cli.js sync --follow\" \"node dist/cli.js serve\"",
     "start:serve": "NODE_ENV=production node dist/cli.js serve",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",

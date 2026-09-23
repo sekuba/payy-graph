@@ -1,7 +1,8 @@
 import type { Db } from './db'
+import { date, usdc } from './format'
 import { addressSummary, graphAround, resolve } from './graph/queries'
 import type { Deposit, Graph, Withdrawal } from './graph/types'
-import { CHAINS, USDC_DECIMALS } from './protocol'
+import { CHAINS } from './protocol'
 
 /** Command line view of the graph: which deposits paid for a withdrawal */
 export function trace(db: Db, input: string): void {
@@ -68,14 +69,4 @@ function describeWithdrawal(w: Withdrawal): string {
   const link =
     w.chain && w.paidTx ? ` ${CHAINS[w.chain].explorer}/tx/${w.paidTx}` : ''
   return `${usdc(w.amount)} USDC to ${w.recipient}${label} ${where} ${date(w.time)}${w.substituted ? ' (fronted)' : ''}${link}`
-}
-
-function usdc(amount: number): string {
-  return (amount / 10 ** USDC_DECIMALS)
-    .toFixed(USDC_DECIMALS)
-    .replace(/\.?0+$/, '')
-}
-
-function date(unix: number): string {
-  return new Date(unix * 1000).toISOString().slice(0, 16).replace('T', ' ')
 }

@@ -10,7 +10,7 @@ import {
 import { log } from '../log'
 import { NOTE_KIND_USDC, TxKind, ZERO_COMMITMENT } from '../protocol'
 import type { PublicInputs, TxnSnapshot } from './api'
-import { insertTxns, parseTxn } from './indexer'
+import { CURSOR_KEY, insertTxns, parseTxn } from './indexer'
 
 /**
  * The spend graph is nothing more than the public inputs of every Payy
@@ -96,7 +96,7 @@ export async function importSnapshot(db: Db, path: string): Promise<void> {
     }
   }
   flush()
-  if (last) setSync(db, 'payy_cursor', cursorAfter(last))
+  if (last) setSync(db, CURSOR_KEY, cursorAfter(last))
   log('imported', { txns: count, height: last?.block_height })
 }
 

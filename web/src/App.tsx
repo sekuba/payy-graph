@@ -11,6 +11,9 @@ import { GraphView } from './GraphView'
 import { PathPanel } from './PathPanel'
 import { DepositTable, WithdrawalTable } from './Tables'
 
+/** Withdrawals of an address shown at first; the rest can be toggled on */
+const INITIAL_WITHDRAWALS = 5
+
 /**
  * One page: a search box, the graph, and the tables behind it. The URL hash
  * holds the query so views can be shared.
@@ -28,12 +31,13 @@ export function App() {
   const [graph, setGraph] = useState<Graph>()
   const [paths, setPaths] = useState<Path[]>([])
   const [error, setError] = useState<string>()
+  const [offline, setOffline] = useState(false)
 
   useEffect(() => {
     api
       .status()
       .then(setStatus)
-      .catch(() => undefined)
+      .catch(() => setOffline(true))
   }, [])
 
   // Resolve the query into an address or a set of transactions
@@ -56,7 +60,12 @@ export function App() {
           const s = await api.address(r.address)
           if (cancelled) return
           setSummary(s)
-          setSelected(new Set(s.withdrawals.map((w) => w.txHash)))
+          // the latest few; an address can have thousands of withdrawals
+          setSelected(
+            new Set(
+              s.withdrawals.slice(-INITIAL_WITHDRAWALS).map((w) => w.txHash),
+            ),
+          )
           setDirection('back')
         } else if (r.type === 'txn') {
           setSelected(new Set([r.hash]))
@@ -137,7 +146,14 @@ export function App() {
         {status && <SyncStatus status={status} />}
       </header>
 
-      {error && <div style={{ color: 'var(--withdrawal)' }}>{error}</div>}
+      {offline && (
+        <div style={{ color: 'var(--withdrawal)' }}>
+          The indexer is offline right now. Try again in a few minutes.
+        </div>
+      )}
+      {error && !offline && (
+        <div style={{ color: 'var(--withdrawal)' }}>{error}</div>
+      )}
       {resolved?.type === 'unknown' && (
         <div style={{ color: 'var(--ink-2)' }}>
           Nothing in the index matches this input.

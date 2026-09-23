@@ -1,5 +1,10 @@
 import type { Db } from '../db'
-import { labelOf, MIGRATION_DISTRIBUTION, TxKind } from '../protocol'
+import {
+  labelOf,
+  MIGRATION_DISTRIBUTION,
+  TREASURY_LABEL,
+  TxKind,
+} from '../protocol'
 import { type Bounds, inferAmounts } from './amounts'
 import {
   collect,
@@ -257,7 +262,7 @@ function treasuryOf(
   for (const t of txns.values()) {
     if (t.kind !== TxKind.Mint) continue
     const d = depositOf(db, t)
-    if (d?.label === 'Payy treasury') {
+    if (d?.label === TREASURY_LABEL) {
       amount += d.amount
       count++
     }

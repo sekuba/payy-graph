@@ -69,7 +69,9 @@ pnpm check                  # typecheck, lint, tests
 For production, `pnpm build` writes the server to `dist/` and the UI to
 `dist/web/`. `pnpm start` then runs `sync --follow` and `serve` together (the
 UI is static files served by `serve`, so no third process); `pnpm start:serve`
-runs the server alone if the sync lives elsewhere.
+runs the server alone if the sync lives elsewhere. The public deployment
+(UI on GitHub Pages, API behind a Cloudflare tunnel, systemd units) is
+described in [`deploy/README.md`](deploy/README.md).
 
 The first sync downloads about 1.5 million transactions from the public Payy
 node at roughly 100 per second; the L1 events take a few minutes over RPC.
@@ -96,4 +98,6 @@ GET /api/path/:burnTx           a withdrawal's history: origin and released note
 GET /api/graph?tx=&dir=back|forward|both&limit=
 ```
 
-Amounts are integers in micro USDC. Hashes are hex without `0x`.
+Amounts are integers in micro USDC. Hashes are hex without `0x`. A graph
+request starts from at most 50 transactions and loads at most 2000 (default
+400). Responses are cached in memory and carry `cache-control` for a CDN.

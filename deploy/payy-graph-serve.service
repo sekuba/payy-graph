@@ -1,0 +1,16 @@
+# systemd user unit, see deploy/README.md
+[Unit]
+Description=payy-graph serve: JSON API
+
+[Service]
+# the checkout; .env in this directory is read on startup
+WorkingDirectory=%h/w/payy-graph
+Environment=NODE_ENV=production
+# node >= 22.13; this is fnm's default alias, adjust for other installs
+Environment=PATH=%h/.local/share/fnm/aliases/default/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node --disable-warning=ExperimentalWarning dist/cli.js serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

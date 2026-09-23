@@ -3,7 +3,8 @@ import { log, sleep } from '../log'
 import { TxKind, ZERO_COMMITMENT } from '../protocol'
 import type { PayyNode, TxnSnapshot } from './api'
 
-const CURSOR_KEY = 'payy_cursor'
+/** sync table key of the node's pagination cursor */
+export const CURSOR_KEY = 'payy_cursor'
 
 /** A Payy transaction reduced to what the spend graph needs */
 export interface TxnRecord {

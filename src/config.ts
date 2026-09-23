@@ -5,7 +5,14 @@ export interface Config {
   dbPath: string
   payyNodeUrl: string
   rpcUrls: Partial<Record<ChainId, string>>
+  host: string
   port: number
+  /**
+   * The one browser origin allowed to call the API, e.g. the Pages site, or
+   * `*`. Sent on every response rather than echoing the request's origin,
+   * because a CDN cache does not vary by origin.
+   */
+  corsOrigin: string | undefined
 }
 
 export function loadConfig(): Config {
@@ -22,6 +29,9 @@ export function loadConfig(): Config {
     dbPath: env.PAYY_GRAPH_DB ?? 'data/payy-graph.sqlite',
     payyNodeUrl: env.PAYY_NODE_URL ?? PAYY_NODE_URL,
     rpcUrls,
+    // only the tunnel (or a local proxy) should reach the server
+    host: env.HOST ?? '127.0.0.1',
     port: Number(env.PORT ?? 3020),
+    corsOrigin: env.CORS_ORIGIN || undefined,
   }
 }
