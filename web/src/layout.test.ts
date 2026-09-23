@@ -1,6 +1,6 @@
 import { expect } from 'earl'
 import type { Graph } from '../../src/graph/types'
-import { CARD_ID, layoutGraph, MIGRATION_ID } from './layout'
+import { layoutGraph, MIGRATION_ID, placeInOrder } from './layout'
 
 /**
  * deposit -> send -> send -> send -> withdrawal, each send paying someone
@@ -65,17 +65,39 @@ describe(layoutGraph.name, () => {
     expect(layout.nodes.every((n) => !n.group)).toEqual(true)
   })
 
-  it('sends card payments to one card node, bundled per source node', () => {
-    const layout = layoutGraph(chain(4, true), new Set())
-    expect(layout.nodes.map((n) => n.id)).toEqual([
-      'mint',
-      'send0',
-      'burn',
-      CARD_ID,
+  it('counts card payments in a group and draws them as stubs otherwise', () => {
+    const grouped = layoutGraph(chain(4, true), new Set())
+    expect(grouped.nodes.map((n) => n.id)).toEqual(['mint', 'send0', 'burn'])
+    expect(grouped.nodes.find((n) => n.group)?.group?.card).toEqual(4)
+    // no far-away card node: each payment ends at the send that paid it
+    const flat = layoutGraph(chain(4, true), new Set(), { collapse: false })
+    const card = flat.edges.filter((e) => e.card)
+    expect(card.map((e) => [e.from?.id, e.to, e.notes.length])).toEqual([
+      ['send0', undefined, 1],
+      ['send1', undefined, 1],
+      ['send2', undefined, 1],
+      ['send3', undefined, 1],
     ])
-    expect(layout.nodes.find((n) => n.group)?.group?.card).toEqual(4)
-    const toCard = layout.edges.filter((e) => e.to?.id === CARD_ID)
-    expect(toCard.map((e) => e.notes.length)).toEqual([4])
+  })
+
+  it('routes an edge that spans layers past the nodes in between', () => {
+    // mint -> a -> b -> burn, and mint -> burn directly
+    const g = chain(2)
+    g.notes.push({ commitment: 'skip', from: 'mint', to: 'burn', min: 0 })
+    const layout = layoutGraph(g, new Set(), { collapse: false })
+    const skip = layout.edges.find((e) =>
+      e.notes.some((n) => n.commitment === 'skip'),
+    )
+    const between = layout.nodes.filter((n) => n.id.startsWith('send'))
+    // the long edge passes the sends' layers above or below them
+    const ys = [...(skip?.path.matchAll(/L\d+,(-?[\d.]+)/g) ?? [])].map((m) =>
+      Number(m[1]),
+    )
+    expect(ys.length).toEqual(2)
+    for (const [i, n] of between.entries()) {
+      const y = ys[i] ?? 0
+      expect(y < n.y || y > n.y + 36).toEqual(true)
+    }
   })
 
   it('draws migrated notes from the migration node', () => {
@@ -91,5 +113,28 @@ describe(layoutGraph.name, () => {
   it('keeps every transaction when collapsing is off', () => {
     const layout = layoutGraph(chain(5), new Set(), { collapse: false })
     expect(layout.nodes.length).toEqual(7)
+  })
+})
+
+describe(placeInOrder.name, () => {
+  it('keeps the order and the spacing, as close to the wishes as it can', () => {
+    // two items that both want to be at 10, at least 20 apart
+    expect(
+      placeInOrder(
+        ['a', 'b'],
+        [10, 10],
+        () => 20,
+        () => 1,
+      ),
+    ).toEqual([0, 20])
+    // no conflict: everyone where they want to be
+    expect(
+      placeInOrder(
+        ['a', 'b'],
+        [0, 100],
+        () => 20,
+        () => 1,
+      ),
+    ).toEqual([0, 100])
   })
 })

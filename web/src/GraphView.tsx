@@ -4,7 +4,6 @@ import { useAddressText } from './Address'
 import { originName } from './Bridge'
 import { DUST, date, shortHex, usdc } from './format'
 import {
-  CARD_ID,
   type Group,
   layoutGraph,
   MIGRATION_ID,
@@ -251,7 +250,7 @@ function Edge({
     !edge.to.virtual &&
     notes.every((n) => faint(n.reach))
   const leaves = edge.from && !edge.to
-  const card = edge.to?.virtual === 'card'
+  const card = edge.card === true
   const label =
     notes.length > 1
       ? `×${notes.length}`
@@ -275,7 +274,17 @@ function Edge({
         strokeLinecap="round"
         strokeDasharray={determined ? undefined : '4 4'}
       />
-      {leaves && (
+      {card && (
+        <rect
+          x={edge.end.x}
+          y={edge.end.y - 4}
+          width={11}
+          height={8}
+          rx={1.5}
+          fill="var(--card)"
+        />
+      )}
+      {leaves && !card && (
         <circle
           cx={edge.end.x}
           cy={edge.end.y}
@@ -287,9 +296,9 @@ function Edge({
       )}
       {label && (
         <text
-          x={edge.mid.x}
-          y={edge.mid.y - 5}
-          textAnchor="middle"
+          x={card ? edge.end.x + 14 : edge.mid.x}
+          y={card ? edge.end.y + 4 : edge.mid.y - 5}
+          textAnchor={card ? 'start' : 'middle'}
           fontSize={11}
           fill="var(--ink-2)"
           className="mono"
@@ -405,8 +414,6 @@ function nodeLabels(
     labels.set(w.txHash, addressText(w.recipient))
   }
   labels.set(MIGRATION_ID, 'previous Payy chain')
-  const payments = graph.notes.filter((n) => n.batch).length
-  labels.set(CARD_ID, `${payments} payment${payments === 1 ? '' : 's'}`)
   return labels
 }
 
@@ -507,27 +514,6 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
       </div>
     )
   }
-  if (hover.kind === 'node' && hover.node.virtual === 'card') {
-    const payments = graph.notes.filter((n) => n.batch).length
-    const total = graph.batches.reduce((a, b) => a + b.amount, 0)
-    const merged = graph.batches.reduce((a, b) => a + b.notes, 0)
-    return (
-      <div className="tooltip" style={style}>
-        <div>
-          <strong>Payy card</strong>
-        </div>
-        <div style={{ color: 'var(--ink-2)' }}>
-          {payments} payments from this view in {graph.batches.length} batches
-          <br />
-          the batches merged {merged.toLocaleString('en-US')} payments and
-          withdrew {usdc(total)} USDC
-        </div>
-        <div style={{ color: 'var(--muted)' }}>
-          only batch totals are public; each payment is at most its batch
-        </div>
-      </div>
-    )
-  }
   if (hover.kind === 'node') {
     const { txn, group } = hover.node
     if (group) {
@@ -582,7 +568,7 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
       <div className="tooltip" style={style}>
         <div>
           <strong>{notes.length} notes</strong>
-          {hover.edge.to?.virtual === 'card' && ' paid with the card'}
+          {hover.edge.card && ' paid with the card'}
         </div>
         <div style={{ color: 'var(--ink-2)' }}>
           {known.length === notes.length
@@ -611,6 +597,7 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
                 : 'spent'
               : 'unspent'}
       </div>
+      {n.batch && <BatchText graph={graph} burnTx={n.batch} />}
       {n.reach !== undefined && n.to && !n.continues && (
         <div style={{ color: 'var(--ink-2)' }}>
           at most <span className="mono">{usdc(n.reach)}</span> of it can be in
@@ -620,6 +607,19 @@ function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
       <div className="mono" style={{ color: 'var(--muted)' }}>
         note {shortHex(n.commitment, 8)}
       </div>
+    </div>
+  )
+}
+
+/** The card batch a payment was settled in; only its total is public */
+function BatchText({ graph, burnTx }: { graph: Graph; burnTx: string }) {
+  const b = graph.batches.find((x) => x.burnTx === burnTx)
+  if (!b) return null
+  return (
+    <div style={{ color: 'var(--muted)' }}>
+      settled in a batch of {b.notes.toLocaleString('en-US')} payments that
+      withdrew {usdc(b.amount)} USDC on {date(b.time).slice(0, 10)}; only the
+      batch total is public
     </div>
   )
 }
