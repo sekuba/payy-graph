@@ -1,9 +1,18 @@
 import { all, type Db, getSync, one } from '../db'
 import { type ChainId, labelOf, TxKind } from '../protocol'
-import { inferAmounts } from './amounts'
-import { collect, getNote, getTxn, type TxnRow } from './closure'
+import { type Bounds, inferAmounts } from './amounts'
+import {
+  collect,
+  getNote,
+  getTxn,
+  type NoteRow,
+  type Subgraph,
+  type TxnRow,
+} from './closure'
+import { cardBatch, migrationSummary, Role } from './roles'
 import type {
   AddressSummary,
+  CardBatch,
   Deposit,
   Graph,
   Resolved,
@@ -98,6 +107,74 @@ export function withdrawalOf(db: Db, burn: TxnRow): Withdrawal {
   }
 }
 
+/** A card batch by its burn tx, with how it was paid out on L1 */
+export function cardBatchOf(db: Db, burnTx: string): CardBatch | undefined {
+  const row = cardBatch(db, burnTx)
+  const burn = getTxn(db, burnTx)
+  if (!row || !burn) return undefined
+  const w = withdrawalOf(db, burn)
+  return {
+    burnTx,
+    time: row.time,
+    firstTime: row.first_time,
+    amount: row.amount,
+    notes: row.notes,
+    recipient: w.recipient,
+    chain: w.chain,
+    paidTx: w.paidTx,
+  }
+}
+
+/**
+ * Amount inference over a subgraph and the card batches its notes were
+ * paid into. A batch adds one equation: the notes merged into it sum to the
+ * amount it withdrew. Merged notes from outside the subgraph are one
+ * unknown, so a payment is at most the batch total, and exactly it when the
+ * batch holds nothing else.
+ */
+export function inferWithBatches(
+  db: Db,
+  sub: Pick<Subgraph, 'txns' | 'notes' | 'boundaries'>,
+): Map<string, Bounds> {
+  const txns = new Map(sub.txns)
+  const notes = new Map(sub.notes)
+  const paid = new Map<string, NoteRow[]>()
+  for (const n of sub.notes.values()) {
+    const role = n.spent_tx ? sub.boundaries.get(n.spent_tx) : undefined
+    if (role?.role !== Role.Card) continue
+    const list = paid.get(role.batch) ?? []
+    list.push(n)
+    paid.set(role.batch, list)
+  }
+  for (const [burnTx, payments] of paid) {
+    const batch = cardBatch(db, burnTx)
+    if (!batch) continue
+    const id = `batch:${burnTx}`
+    txns.set(id, {
+      hash: id,
+      height: batch.height,
+      idx: 0,
+      time: batch.time,
+      kind: TxKind.Burn,
+      amount: batch.amount,
+      msg_hash: '',
+      burn_addr: null,
+    })
+    for (const n of payments) notes.set(n.commitment, { ...n, spent_tx: id })
+    if (batch.notes > payments.length) {
+      const rest = `rest:${burnTx}`
+      notes.set(rest, {
+        commitment: rest,
+        created_tx: null,
+        created_idx: null,
+        spent_tx: id,
+        spent_idx: null,
+      })
+    }
+  }
+  return inferAmounts({ txns, notes })
+}
+
 /**
  * The graph around one or more transactions. Backward reaches the deposits
  * that funded them, forward the withdrawals they funded.
@@ -109,7 +186,7 @@ export function graphAround(
   limit = DEFAULT_LIMIT,
 ): Graph {
   const sub = collect(db, txHashes, direction, limit)
-  const bounds = inferAmounts(sub)
+  const bounds = inferWithBatches(db, sub)
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
   for (const t of sub.txns.values()) {
@@ -122,6 +199,12 @@ export function graphAround(
       withdrawals.push({ ...withdrawalOf(db, t), hops })
     }
   }
+  const roles = new Set([...sub.boundaries.values()].map((r) => r.role))
+  const batches = new Set(
+    [...sub.boundaries.values()]
+      .filter((r) => r.role === Role.Card)
+      .map((r) => r.batch),
+  )
   // nearest first: the deposits few hops away are the ones that matter
   const nearestFirst = (a: { hops?: number; time: number }, b: typeof a) =>
     (a.hops ?? 0) - (b.hops ?? 0) || a.time - b.time
@@ -135,15 +218,25 @@ export function graphAround(
         kind: t.kind,
         amount: t.amount,
       })),
-    notes: [...sub.notes.values()].map((n) => ({
-      commitment: n.commitment,
-      from: n.created_tx ?? undefined,
-      to: n.spent_tx ?? undefined,
-      continues: n.spent_tx !== null && !sub.txns.has(n.spent_tx),
-      ...(bounds.get(n.commitment) ?? { min: 0 }),
-    })),
+    notes: [...sub.notes.values()].map((n) => {
+      const source = n.created_tx ? sub.boundaries.get(n.created_tx) : undefined
+      const sink = n.spent_tx ? sub.boundaries.get(n.spent_tx) : undefined
+      return {
+        commitment: n.commitment,
+        from: n.created_tx ?? undefined,
+        to: n.spent_tx ?? undefined,
+        continues: n.spent_tx !== null && !sub.txns.has(n.spent_tx),
+        ...(source?.role === Role.Migration && {
+          source: 'migration' as const,
+        }),
+        ...(sink?.role === Role.Card && { batch: sink.batch }),
+        ...(bounds.get(n.commitment) ?? { min: 0 }),
+      }
+    }),
     deposits: deposits.sort(nearestFirst),
     withdrawals: withdrawals.sort(nearestFirst),
+    migration: roles.has(Role.Migration) ? migrationSummary(db) : undefined,
+    batches: [...batches].flatMap((b) => cardBatchOf(db, b) ?? []),
     truncated: sub.truncated,
   }
 }

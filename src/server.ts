@@ -12,6 +12,8 @@ import {
   resolve,
   status,
 } from './graph/queries'
+import { lookupNames } from './l1/names'
+import { JsonRpc } from './l1/rpc'
 import { log } from './log'
 import { TxKind } from './protocol'
 
@@ -19,6 +21,8 @@ import { TxKind } from './protocol'
 const MAX_LIMIT = 2000
 /** Most transactions one graph request may start from */
 const MAX_START = 50
+/** Most addresses one names request may ask for */
+const MAX_NAMES = 200
 
 /**
  * Small JSON API over the index. The web UI in `web/` is its only client. It
@@ -33,6 +37,8 @@ export function serve(db: Db, config: Config): void {
   const app = express()
   app.disable('x-powered-by')
   const cache = new Cache(256 * 1024 * 1024)
+  const ethereum = config.rpcUrls.ethereum
+  const rpc = ethereum ? new JsonRpc(ethereum) : undefined
 
   app.use('/api', (_req, res, next) => {
     if (config.corsOrigin) {
@@ -96,6 +102,16 @@ export function serve(db: Db, config: Config): void {
       )
     }),
   )
+
+  /** ?a=<address>&a=<address>: primary ENS and GNS names, verified both ways */
+  app.get('/api/names', async (req, res) => {
+    const a = req.query.a
+    const addresses = (Array.isArray(a) ? a : [a])
+      .filter((x): x is string => typeof x === 'string')
+      .slice(0, MAX_NAMES)
+    const names = await lookupNames(db, rpc, addresses)
+    res.set('cache-control', 'public, max-age=3600').json(names)
+  })
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'not found' })

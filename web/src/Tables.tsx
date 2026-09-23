@@ -1,15 +1,31 @@
+import { useState } from 'react'
 import type { Deposit, Withdrawal } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
-import {
-  date,
-  l1AddressUrl,
-  l1TxUrl,
-  payyTxUrl,
-  shortHex,
-  usdc,
-} from './format'
+import { Address } from './Address'
+import { date, l1TxUrl, payyTxUrl, shortHex, usdc } from './format'
+
+/** Rows shown before "show all" */
+const ROWS = 10
+
+/** The first rows of a list, and a button for the rest */
+function useRows<T>(rows: T[]): [T[], React.ReactNode] {
+  const [all, setAll] = useState(false)
+  if (all || rows.length <= ROWS + 2) return [rows, null]
+  return [
+    rows.slice(0, ROWS),
+    <button
+      key="more"
+      type="button"
+      className="toggle mt-1 text-xs"
+      onClick={() => setAll(true)}
+    >
+      show all {rows.length}
+    </button>,
+  ]
+}
 
 export function DepositTable({ deposits }: { deposits: Deposit[] }) {
+  const [shown, more] = useRows(deposits)
   const total = deposits.reduce((a, d) => a + d.amount, 0)
   const showHops = deposits.some((d) => d.hops !== undefined)
   return (
@@ -26,17 +42,10 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
         </tr>
       </thead>
       <tbody>
-        {deposits.map((d) => (
+        {shown.map((d) => (
           <tr key={d.mintHash} className="row hairline border-t">
-            <td className="mono py-1">
-              <a
-                href={l1AddressUrl(d.chain, d.depositor)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {d.depositor}
-              </a>
-              {d.label && <span className="chip ml-2">{d.label}</span>}
+            <td className="py-1">
+              <Address address={d.depositor} chain={d.chain} full />
             </td>
             <td className="mono py-1 text-right">{usdc(d.amount)}</td>
             {showHops && (
@@ -68,6 +77,7 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
           </tr>
         )}
       </tbody>
+      {more && <caption className="caption-bottom text-left">{more}</caption>}
     </table>
   )
 }
@@ -81,6 +91,7 @@ export function WithdrawalTable({
   selected?: Set<string>
   onToggle?: (txHash: string) => void
 }) {
+  const [shown, more] = useRows(withdrawals)
   return (
     <table className="w-full text-left text-xs">
       <thead style={{ color: 'var(--muted)' }}>
@@ -94,26 +105,19 @@ export function WithdrawalTable({
         </tr>
       </thead>
       <tbody>
-        {withdrawals.map((w) => (
+        {shown.map((w) => (
           <tr
             key={w.burnHash}
             className={`row hairline border-t ${selected?.has(w.txHash) ? 'selected' : ''} ${onToggle ? 'cursor-pointer' : ''}`}
             onClick={() => onToggle?.(w.txHash)}
           >
-            <td className="mono py-1">
-              {w.chain ? (
-                <a
-                  href={l1AddressUrl(w.chain, w.recipient)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {w.recipient}
-                </a>
-              ) : (
-                w.recipient
+            <td className="py-1">
+              <Address address={w.recipient} chain={w.chain} full />
+              {w.substituted && (
+                <span className="chip ml-2" title="paid early by Payy">
+                  fronted
+                </span>
               )}
-              {w.label && <span className="chip ml-2">{w.label}</span>}
-              {w.substituted && <span className="chip ml-2">fronted</span>}
             </td>
             <td className="mono py-1 text-right">{usdc(w.amount)}</td>
             <td className="py-1">
@@ -139,6 +143,7 @@ export function WithdrawalTable({
           </tr>
         ))}
       </tbody>
+      {more && <caption className="caption-bottom text-left">{more}</caption>}
     </table>
   )
 }

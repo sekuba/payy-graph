@@ -1,9 +1,12 @@
 import { expect } from 'earl'
 import type { Graph } from '../../src/graph/types'
-import { layoutGraph } from './layout'
+import { CARD_ID, layoutGraph, MIGRATION_ID } from './layout'
 
-/** deposit -> send -> send -> send -> withdrawal, each send paying someone */
-function chain(sends: number): Graph {
+/**
+ * deposit -> send -> send -> send -> withdrawal, each send paying someone
+ * (or paying with the card, with `card`)
+ */
+function chain(sends: number, card = false): Graph {
   const txns: Graph['txns'] = [
     { hash: 'mint', height: 0, time: 0, kind: 2, amount: 100 },
   ]
@@ -19,6 +22,7 @@ function chain(sends: number): Graph {
       from: hash,
       to: `else${i}`,
       continues: true,
+      ...(card && { batch: `batch${i}` }),
       min: 0,
     })
     notes.push({ commitment: `change${i}`, from: hash, min: 0 })
@@ -33,7 +37,14 @@ function chain(sends: number): Graph {
   })
   const last = notes.find((n) => n.commitment === note)
   if (last) last.to = 'burn'
-  return { txns, notes, deposits: [], withdrawals: [], truncated: false }
+  return {
+    txns,
+    notes,
+    deposits: [],
+    withdrawals: [],
+    batches: [],
+    truncated: false,
+  }
 }
 
 describe(layoutGraph.name, () => {
@@ -52,5 +63,33 @@ describe(layoutGraph.name, () => {
     const layout = layoutGraph(chain(3), new Set(['send0']))
     expect(layout.nodes.length).toEqual(5)
     expect(layout.nodes.every((n) => !n.group)).toEqual(true)
+  })
+
+  it('sends card payments to one card node, bundled per source node', () => {
+    const layout = layoutGraph(chain(4, true), new Set())
+    expect(layout.nodes.map((n) => n.id)).toEqual([
+      'mint',
+      'send0',
+      'burn',
+      CARD_ID,
+    ])
+    expect(layout.nodes.find((n) => n.group)?.group?.card).toEqual(4)
+    const toCard = layout.edges.filter((e) => e.to?.id === CARD_ID)
+    expect(toCard.map((e) => e.notes.length)).toEqual([4])
+  })
+
+  it('draws migrated notes from the migration node', () => {
+    const g = chain(1)
+    g.txns = g.txns.filter((t) => t.hash !== 'mint')
+    const first = g.notes.find((n) => n.commitment === 'n0')
+    if (first) first.source = 'migration'
+    const layout = layoutGraph(g, new Set())
+    expect(layout.nodes[0]?.id).toEqual(MIGRATION_ID)
+    expect(layout.edges.some((e) => e.from?.id === MIGRATION_ID)).toEqual(true)
+  })
+
+  it('keeps every transaction when collapsing is off', () => {
+    const layout = layoutGraph(chain(5), new Set(), { collapse: false })
+    expect(layout.nodes.length).toEqual(7)
   })
 })

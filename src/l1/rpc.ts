@@ -24,7 +24,7 @@ interface RawLog {
   logIndex: string
 }
 
-/** Minimal JSON-RPC client: only what the L1 indexer needs */
+/** Minimal JSON-RPC client: what the L1 indexer and name lookups need */
 export class JsonRpc {
   constructor(private readonly url: string) {}
 
@@ -85,6 +85,32 @@ export class JsonRpc {
     return result
   }
 
+  /** Deployed code of many addresses, batched ('0x' for an EOA) */
+  async getCodes(addresses: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>()
+    for (let i = 0; i < addresses.length; i += 100) {
+      const batch = addresses.slice(i, i + 100)
+      const codes = await this.batch<string>(
+        batch.map((a) => ({ method: 'eth_getCode', params: [a, 'latest'] })),
+      )
+      batch.forEach((a, j) => void result.set(a, codes[j] ?? '0x'))
+    }
+    return result
+  }
+
+  /**
+   * Read-only contract calls at the latest block, batched in one request.
+   * A call that reverts gives undefined instead of failing the batch.
+   */
+  async ethCalls(
+    calls: { to: string; data: string }[],
+  ): Promise<(string | undefined)[]> {
+    return this.batch<string>(
+      calls.map((c) => ({ method: 'eth_call', params: [c, 'latest'] })),
+      { reverts: true },
+    )
+  }
+
   private async call<T>(method: string, params: unknown[]): Promise<T> {
     const [result] = await this.batch<T>([{ method, params }])
     if (result === undefined) throw new Error(`empty response for ${method}`)
@@ -93,7 +119,15 @@ export class JsonRpc {
 
   private async batch<T>(
     calls: { method: string; params: unknown[] }[],
-  ): Promise<T[]> {
+  ): Promise<T[]>
+  private async batch<T>(
+    calls: { method: string; params: unknown[] }[],
+    options: { reverts: true },
+  ): Promise<(T | undefined)[]>
+  private async batch<T>(
+    calls: { method: string; params: unknown[] }[],
+    options?: { reverts: true },
+  ): Promise<(T | undefined)[]> {
     const body = calls.map((c, id) => ({ jsonrpc: '2.0', id, ...c }))
     let lastError: unknown
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -113,6 +147,9 @@ export class JsonRpc {
         const byId = new Map(json.map((r) => [r.id, r]))
         return calls.map((c, id) => {
           const r = byId.get(id)
+          if (r?.error && options?.reverts && /revert/i.test(r.error.message)) {
+            return undefined
+          }
           if (!r || r.error) {
             throw new Error(`${c.method}: ${r?.error?.message ?? 'missing'}`)
           }

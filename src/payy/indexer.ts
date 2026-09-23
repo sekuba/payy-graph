@@ -1,4 +1,5 @@
 import { type Db, getSync, setSync, transaction } from '../db'
+import { deriveRoles } from '../graph/roles'
 import { log, sleep } from '../log'
 import { TxKind, ZERO_COMMITMENT } from '../protocol'
 import type { PayyNode, TxnSnapshot } from './api'
@@ -82,7 +83,8 @@ export function insertTxns(db: Db, records: TxnRecord[]): void {
 
 /**
  * Pages through the node's transaction history from the saved cursor. With
- * `follow` it keeps polling for new blocks once it has caught up.
+ * `follow` it keeps polling for new blocks once it has caught up. Each time
+ * it catches up, the roles of the new transactions are derived.
  */
 export async function syncPayy(
   db: Db,
@@ -111,6 +113,8 @@ export async function syncPayy(
       }
     }
     if (txns.length === 0 || !after) {
+      // caught up: classify what arrived (a first run takes a few minutes)
+      deriveRoles(db)
       if (!options.follow) break
       await sleep(10_000)
     }

@@ -10,7 +10,7 @@ import type { NoteRow, Subgraph, TxnRow } from './closure'
 function graph(
   txns: { hash: string; kind: TxKind; amount?: number }[],
   notes: { id: string; from?: string; to?: string }[],
-): Subgraph {
+): Pick<Subgraph, 'txns' | 'notes'> {
   const txnMap = new Map<string, TxnRow>()
   for (const t of txns) {
     txnMap.set(t.hash, {
@@ -34,7 +34,7 @@ function graph(
       spent_idx: n.to ? i : null,
     })
   })
-  return { txns: txnMap, notes: noteMap, hops: new Map(), truncated: false }
+  return { txns: txnMap, notes: noteMap }
 }
 
 describe(inferAmounts.name, () => {

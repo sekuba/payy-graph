@@ -21,7 +21,9 @@ export interface Bounds {
  * leave open get bounds instead, since a note cannot exceed what flowed into
  * its transaction.
  */
-export function inferAmounts(graph: Subgraph): Map<string, Bounds> {
+export function inferAmounts(
+  graph: Pick<Subgraph, 'txns' | 'notes'>,
+): Map<string, Bounds> {
   const equations = new Map(
     [...graph.txns.values()].map((t) => [
       t.hash,

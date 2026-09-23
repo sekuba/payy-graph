@@ -90,6 +90,34 @@ const SCHEMA = `
     primary key (chain, block)
   );
 
+  -- Payy-operated transactions the graph treats as one unit instead of
+  -- walking through them (src/graph/roles.ts), derived from the history
+  create table if not exists role (
+    tx text primary key,
+    role integer not null,      -- 1 migration distribution, 2 card batch
+    batch text not null         -- card: burn tx of the batch
+  );
+  create index if not exists role_batch on role(batch);
+
+  -- Card batches: the collector's burn to the card settlement and the
+  -- number of notes merged into it
+  create table if not exists card_batch (
+    burn_tx text primary key,
+    height integer not null,
+    time integer not null,
+    amount integer not null,
+    notes integer not null,
+    first_time integer not null -- earliest merge of the batch
+  );
+
+  -- ENS and GNS primary names of L1 addresses, cached
+  create table if not exists name (
+    address text primary key,
+    ens text,
+    gns text,
+    checked integer not null
+  );
+
   create table if not exists sync (
     key text primary key,
     value text not null

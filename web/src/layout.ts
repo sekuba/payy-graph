@@ -7,14 +7,21 @@ import type { Graph, NoteEdge, TxnNode } from '../../src/graph/types'
  * layer by longest path from the sources, then order each layer by the
  * average position of its neighbours to reduce crossings.
  *
- * A wallet that keeps spending from its change note produces a long chain of
- * sends. Such runs are drawn as one group node until the reader expands them.
+ * Two kinds of node stand for what the graph does not expand: the
+ * migration distribution, where the notes of older wallets come from, and
+ * the Payy card, which all card payments go to. A wallet that keeps
+ * spending from its change note produces a long chain of sends; in a large
+ * graph such runs are drawn as one group node until the reader expands
+ * them. Notes between the same two nodes are drawn as one edge.
  */
 
 export const NODE_W = 150
 export const NODE_H = 36
 const COL_GAP = 90
 const ROW_GAP = 22
+
+export const MIGRATION_ID = '@migration'
+export const CARD_ID = '@card'
 
 export interface Group {
   /** id of the group: hash of its first transaction */
@@ -24,23 +31,28 @@ export interface Group {
   leaving: number
   /** notes created inside the run and still unspent */
   unspent: number
+  /** notes created inside the run and paid with the card */
+  card: number
 }
 
 export interface PlacedNode {
-  /** tx hash, or the group id */
+  /** tx hash, group id, or one of the virtual ids */
   id: string
   txn?: TxnNode
   group?: Group
+  /** a boundary the graph does not expand */
+  virtual?: 'migration' | 'card'
   x: number
   y: number
   layer: number
 }
 
 export interface PlacedEdge {
-  note: NoteEdge
-  /** node the note leaves; undefined for a note created outside the view */
+  /** the notes this edge stands for (more than one when bundled) */
+  notes: NoteEdge[]
+  /** node the notes leave; undefined for notes created outside the view */
   from?: PlacedNode
-  /** node the note enters; undefined when unspent or spent outside the view */
+  /** node the notes enter; undefined when unspent or spent outside the view */
   to?: PlacedNode
   path: string
   /** label anchor */
@@ -55,14 +67,19 @@ export interface Layout {
   height: number
 }
 
-export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
+export function layoutGraph(
+  graph: Graph,
+  expanded: Set<string>,
+  options: { collapse?: boolean } = {},
+): Layout {
+  const collapse = options.collapse ?? true
   const byHash = new Map(graph.txns.map((t) => [t.hash, t]))
+  const inView = (h: string | undefined): h is string =>
+    h !== undefined && byHash.has(h)
   // notes with both ends in view, as (creator, spender) pairs
   const links: [string, string][] = []
   for (const n of graph.notes) {
-    if (n.from && n.to && byHash.has(n.from) && byHash.has(n.to)) {
-      links.push([n.from, n.to])
-    }
+    if (inView(n.from) && inView(n.to)) links.push([n.from, n.to])
   }
   const preds = new Map<string, string[]>()
   const succs = new Map<string, string[]>()
@@ -81,7 +98,7 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
     byHash.get(h)?.kind === 1 &&
     preds.get(h)?.length === 1 &&
     succs.get(h)?.length === 1
-  for (const t of graph.txns) {
+  for (const t of collapse ? graph.txns : []) {
     const pred = preds.get(t.hash)?.[0]
     if (!chainable(t.hash) || (pred && chainable(pred))) continue
     const run: TxnNode[] = []
@@ -100,34 +117,57 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
     const group: Group = {
       id: first.hash,
       txns: run,
-      leaving: side.filter((n) => n.to && !byHash.has(n.to)).length,
+      leaving: side.filter((n) => n.to && !byHash.has(n.to) && !n.batch).length,
       unspent: side.filter((n) => !n.to).length,
+      card: side.filter((n) => n.batch).length,
     }
     for (const h of members) groupOf.set(h, group)
   }
   const nodeId = (h: string) => groupOf.get(h)?.id ?? h
 
-  // Reduced node list, in height order (groups sit where their first tx was)
+  // Where each note is drawn from and to, in node ids. Notes inside a group
+  // are not drawn; a group's notes that leave the view are summed up in it.
+  const ends = (n: NoteEdge): { from?: string; to?: string } | undefined => {
+    const from = inView(n.from)
+      ? nodeId(n.from)
+      : n.source === 'migration'
+        ? MIGRATION_ID
+        : undefined
+    const to = inView(n.to) ? nodeId(n.to) : n.batch ? CARD_ID : undefined
+    if (from !== undefined && from === to) return undefined
+    const fromGroup = inView(n.from) && groupOf.has(n.from)
+    if (fromGroup && to === undefined) return undefined
+    if (from === undefined && to === undefined) return undefined
+    return { from, to }
+  }
+
+  // Reduced node list: the migration first, then height order (groups sit
+  // where their first tx was), then the card
   const ids: string[] = []
   const seen = new Set<string>()
-  for (const t of graph.txns) {
-    const id = nodeId(t.hash)
-    if (!seen.has(id)) {
-      seen.add(id)
-      ids.push(id)
-    }
+  const add = (id: string) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    ids.push(id)
   }
+  const drawn = graph.notes.flatMap((n) => {
+    const e = ends(n)
+    return e ? [{ note: n, ...e }] : []
+  })
+  if (drawn.some((e) => e.from === MIGRATION_ID)) add(MIGRATION_ID)
+  for (const t of graph.txns) add(nodeId(t.hash))
+  if (drawn.some((e) => e.to === CARD_ID)) add(CARD_ID)
+
   const rPreds = new Map<string, string[]>()
   const rSuccs = new Map<string, string[]>()
   for (const id of ids) {
     rPreds.set(id, [])
     rSuccs.set(id, [])
   }
-  for (const [from, to] of links) {
-    if (nodeId(from) !== nodeId(to)) {
-      rPreds.get(nodeId(to))?.push(nodeId(from))
-      rSuccs.get(nodeId(from))?.push(nodeId(to))
-    }
+  for (const e of drawn) {
+    if (e.from === undefined || e.to === undefined) continue
+    rPreds.get(e.to)?.push(e.from)
+    rSuccs.get(e.from)?.push(e.to)
   }
 
   // Layers: ids arrive in height order and a note is always created before
@@ -177,6 +217,12 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
         id,
         txn: group ? undefined : byHash.get(id),
         group,
+        virtual:
+          id === MIGRATION_ID
+            ? 'migration'
+            : id === CARD_ID
+              ? 'card'
+              : undefined,
         layer: li,
         x: 40 + li * (NODE_W + COL_GAP),
         y: top + i * (NODE_H + ROW_GAP),
@@ -186,21 +232,22 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
     })
   })
 
-  // Edges: notes between reduced nodes, plus stubs for notes that enter or
-  // leave the view. Notes inside a group are not drawn.
+  // Edges: one per pair of nodes, plus stubs for notes that enter or leave
+  // the view
   const edges: PlacedEdge[] = []
-  for (const note of graph.notes) {
-    const fromGroup = note.from ? groupOf.get(note.from) : undefined
-    const toGroup = note.to ? groupOf.get(note.to) : undefined
-    if (
-      fromGroup &&
-      (!note.to || !byHash.has(note.to) || toGroup === fromGroup)
-    ) {
+  const bundles = new Map<string, PlacedEdge>()
+  for (const e of drawn) {
+    const from = e.from === undefined ? undefined : placed.get(e.from)
+    const to = e.to === undefined ? undefined : placed.get(e.to)
+    const key = from && to ? `${from.id} ${to.id}` : undefined
+    const bundle = key ? bundles.get(key) : undefined
+    if (bundle) {
+      bundle.notes.push(e.note)
       continue
     }
-    const from = note.from ? placed.get(nodeId(note.from)) : undefined
-    const to = note.to ? placed.get(nodeId(note.to)) : undefined
-    edges.push({ note, from, to, ...route(from, to) })
+    const edge = { notes: [e.note], from, to, ...route(from, to) }
+    edges.push(edge)
+    if (key) bundles.set(key, edge)
   }
 
   const width = 40 + layers.length * (NODE_W + COL_GAP) + 40

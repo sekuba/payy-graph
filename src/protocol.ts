@@ -21,6 +21,8 @@
  * (owner, value, entropy) are hidden.
  */
 
+import { PUBLIC_LABELS } from './labels.generated'
+
 export const PAYY_NODE_URL = 'https://validators.mainnet.payy.network/v0'
 export const PAYY_EXPLORER_URL = 'https://payy.network/explorer'
 
@@ -89,15 +91,21 @@ export const CHAINS: Record<ChainId, ChainInfo> = {
 }
 
 /**
- * On 2025-09-12 the treasury deposited 2.3M USDC (22:02 and 22:15 UTC) and a
- * hub wallet then paid out 960 notes in two hours: the balances of the
- * previous Payy chain, re-issued on this one. Every wallet that existed
- * before then has its history start in this window, and what happened on the
- * old chain is not visible here.
+ * On 2025-09-12 the balances of the previous Payy chain were re-issued on
+ * this one. Starting with a treasury deposit at 21:58 UTC, a Payy wallet
+ * paid out notes in chains of sends (one every few seconds, output 0 to a
+ * wallet, output 1 the change), topped up by further treasury deposits of
+ * 2.39M USDC in total. It paid out about 2,800 notes, most of them by 03:00
+ * UTC the next morning. Every wallet that existed before then has its
+ * history start in this distribution; which old wallet received which note
+ * was decided off-chain, so what happened on the old chain is not visible
+ * here. The payout transactions are identified in `src/graph/roles.ts`.
  */
 export const MIGRATION_DISTRIBUTION = {
-  start: Date.UTC(2025, 8, 12, 22, 0) / 1000,
-  end: Date.UTC(2025, 8, 13, 0, 0) / 1000,
+  /** the first treasury deposit, 10,000 USDC at height 1291001 */
+  root: '2bb973ebee4b04a101ba015595e2fbd432083017614dd90886a357532cb5722a',
+  start: Date.UTC(2025, 8, 12, 21, 55) / 1000,
+  end: Date.UTC(2025, 8, 13, 12, 0) / 1000,
 }
 
 /** Event topics of RollupV1 and ERC-20 (keccak256 of the signature) */
@@ -116,6 +124,7 @@ export const TOPICS = {
 } as const
 
 export const TREASURY_LABEL = 'Payy treasury'
+export const CARD_LABEL = 'Payy card settlement'
 
 /**
  * Addresses operated by Payy or its service providers, as observed onchain.
@@ -141,10 +150,24 @@ export const KNOWN_ADDRESSES: Record<string, string> = {
   // Forwarder contracts that receive the notes users spend with the Payy
   // card, merged by a collector wallet and withdrawn in batches: 8k
   // withdrawals and 27M USDC by 2026-09, each swept to a single address.
-  '0x69ca5dec143b02499f83bb34b22a122a70e117ca': 'Payy card settlement',
-  '0x7b21b3e4382bf10b011637ba20b16f77fe53f6b8': 'Payy card settlement',
+  '0x69ca5dec143b02499f83bb34b22a122a70e117ca': CARD_LABEL,
+  '0x7b21b3e4382bf10b011637ba20b16f77fe53f6b8': CARD_LABEL,
 }
 
+/** Burn recipients of the card collector: Polygon until 2026-02-17, then Ethereum */
+export const CARD_SETTLEMENT = Object.keys(KNOWN_ADDRESSES).filter(
+  (a) => KNOWN_ADDRESSES[a] === CARD_LABEL,
+)
+
+/** Operated by Payy (above), else a public label (src/labels.ts) */
 export function labelOf(address: string): string | undefined {
-  return KNOWN_ADDRESSES[address.toLowerCase()]
+  const a = address.toLowerCase()
+  return KNOWN_ADDRESSES[a] ?? PUBLIC_LABELS[a]?.label
+}
+
+/** Where a label comes from, for display next to it */
+export function labelSource(address: string): string | undefined {
+  const a = address.toLowerCase()
+  if (KNOWN_ADDRESSES[a]) return 'Payy, as observed onchain (src/protocol.ts)'
+  return PUBLIC_LABELS[a]?.source
 }

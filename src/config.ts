@@ -13,6 +13,8 @@ export interface Config {
    * because a CDN cache does not vary by origin.
    */
   corsOrigin: string | undefined
+  /** only for building the public labels (`labels` command) */
+  etherscanKey: string | undefined
 }
 
 export function loadConfig(): Config {
@@ -33,5 +35,6 @@ export function loadConfig(): Config {
     host: env.HOST ?? '127.0.0.1',
     port: Number(env.PORT ?? 3020),
     corsOrigin: env.CORS_ORIGIN || undefined,
+    etherscanKey: env.ETHERSCAN_API_KEY || undefined,
   }
 }

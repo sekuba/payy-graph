@@ -1,6 +1,7 @@
 import type {
   AddressSummary,
   Graph,
+  Names,
   Path,
   Resolved,
   Status,
@@ -26,10 +27,16 @@ export const api = {
   search: (q: string) => get<Resolved>(`/api/search/${encodeURIComponent(q)}`),
   address: (a: string) => get<AddressSummary>(`/api/address/${a}`),
   path: (burnTx: string) => get<Path>(`/api/path/${burnTx}`),
-  graph: (txs: string[], dir: Direction) => {
+  graph: (txs: string[], dir: Direction, limit?: number) => {
     const params = new URLSearchParams()
     for (const tx of txs) params.append('tx', tx)
     params.set('dir', dir)
+    if (limit) params.set('limit', String(limit))
     return get<Graph>(`/api/graph?${params}`)
+  },
+  names: (addresses: string[]) => {
+    const params = new URLSearchParams()
+    for (const a of addresses) params.append('a', a)
+    return get<Names>(`/api/names?${params}`)
   },
 }

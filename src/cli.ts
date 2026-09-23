@@ -1,8 +1,10 @@
 import { check } from './check'
 import { loadConfig } from './config'
 import { openDb } from './db'
+import { deriveRoles } from './graph/roles'
 import { syncChain } from './l1/indexer'
 import { JsonRpc } from './l1/rpc'
+import { buildLabels } from './labels'
 import { log } from './log'
 import { PayyNode } from './payy/api'
 import { syncPayy } from './payy/indexer'
@@ -17,6 +19,8 @@ const USAGE = `payy-graph <command>
   serve                              start the API and web UI
   trace <address|hash>               print the deposits behind a withdrawal
   check                              consistency checks of the index
+  roles                              classify the migration and card batches
+  labels                             rebuild the public address labels
   export <file.jsonl>                write the transaction history snapshot
   import <file.jsonl>                load a snapshot and continue from it
 `
@@ -71,6 +75,14 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'check': {
       check(db)
+      break
+    }
+    case 'roles': {
+      deriveRoles(db)
+      break
+    }
+    case 'labels': {
+      await buildLabels(db, config)
       break
     }
     case 'export': {

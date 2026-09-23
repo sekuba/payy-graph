@@ -59,6 +59,17 @@ export function check(db: Db): void {
          where not exists (select 1 from txn t where t.kind = 2 and t.msg_hash = d.mint_hash)`,
       ),
     ],
+    [
+      'migration distribution transactions',
+      count('select 1 from role where role = 1'),
+    ],
+    ['card batches', count('select 1 from card_batch')],
+    ['card collector merges', count('select 1 from role where role = 2')],
+    [
+      'card payments (notes merged into batches)',
+      one<{ n: number | null }>(db, 'select sum(notes) as n from card_batch')
+        ?.n ?? 0,
+    ],
     ['settled heights', count('select 1 from settlement')],
     ['last settled height', lastSettled],
   ]

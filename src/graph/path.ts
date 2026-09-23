@@ -1,11 +1,6 @@
 import type { Db } from '../db'
-import {
-  labelOf,
-  MIGRATION_DISTRIBUTION,
-  TREASURY_LABEL,
-  TxKind,
-} from '../protocol'
-import { type Bounds, inferAmounts } from './amounts'
+import { labelOf, TxKind } from '../protocol'
+import type { Bounds } from './amounts'
 import {
   collect,
   getNote,
@@ -16,11 +11,14 @@ import {
   type TxnRow,
 } from './closure'
 import {
+  cardBatchOf,
   DEFAULT_LIMIT,
   depositOf,
+  inferWithBatches,
   settlementChain,
   withdrawalOf,
 } from './queries'
+import { migrationSummary, Role, roleOf } from './roles'
 import type { Destination, Path, PathHop, PathOrigin } from './types'
 
 const MAX_HOPS = 300
@@ -51,15 +49,11 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   }
 
   while (txn && steps.length < MAX_HOPS) {
-    if (
-      txn.kind === TxKind.Send &&
-      txn.time >= MIGRATION_DISTRIBUTION.start &&
-      txn.time < MIGRATION_DISTRIBUTION.end
-    ) {
+    if (roleOf(db, txn.hash)?.role === Role.Migration) {
       origin = {
         type: 'migration',
         time: txn.time,
-        treasury: { amount: 0, count: 0 },
+        distribution: migrationSummary(db),
       }
       break
     }
@@ -91,7 +85,8 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   }
 
   // Amounts: the backward closure, plus the tx that spent each released note,
-  // so a payment withdrawn in full gets its value from that withdrawal.
+  // so a payment withdrawn in full gets its value from that withdrawal, and
+  // the card batch of each card payment, which bounds it.
   const closure = collect(
     db,
     [burn.hash],
@@ -105,6 +100,11 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   for (const { notes } of released) {
     for (const n of notes) {
       if (!n.spent_tx || closure.txns.has(n.spent_tx)) continue
+      const role = roleOf(db, n.spent_tx)
+      if (role?.role === Role.Card) {
+        closure.boundaries.set(n.spent_tx, role)
+        continue
+      }
       const spender = getTxn(db, n.spent_tx)
       if (!spender) continue
       closure.txns.set(spender.hash, spender)
@@ -116,15 +116,36 @@ export function walkPath(db: Db, burn: TxnRow): Path {
       }
     }
   }
-  const bounds = inferAmounts(closure)
-  if (origin.type === 'migration') {
-    origin = { ...origin, treasury: treasuryOf(db, closure.txns) }
-  }
+  const bounds = inferWithBatches(db, closure)
 
   const hops = released
     .map(({ txn, notes }) => hopOf(db, txn, notes[0], bounds))
     .sort((a, b) => a.time - b.time || a.height - b.height)
+  markRecurring(hops)
   return { withdrawal: withdrawalOf(db, burn), hops, origin }
+}
+
+/**
+ * Card payments on the same day of the month at the same hour, in at least
+ * three different months, are marked as recurring. Payy wallets pay some
+ * charges this way; which charge it is does not show onchain.
+ */
+function markRecurring(hops: PathHop[]): void {
+  const slots = new Map<string, PathHop[]>()
+  for (const hop of hops) {
+    if (hop.out?.destination.type !== 'card') continue
+    const d = new Date(hop.time * 1000)
+    const key = `${d.getUTCDate()} ${d.getUTCHours()}`
+    const list = slots.get(key) ?? []
+    list.push(hop)
+    slots.set(key, list)
+  }
+  for (const list of slots.values()) {
+    const months = new Set(
+      list.map((h) => new Date(h.time * 1000).toISOString().slice(0, 7)),
+    )
+    if (months.size >= 3) for (const h of list) h.recurring = true
+  }
 }
 
 /**
@@ -213,6 +234,9 @@ function hopOf(
 /** Follows a note forward until the funds leave the network */
 function destinationOf(db: Db, note: NoteRow): Destination {
   if (!note.spent_tx) return { type: 'unspent' }
+  const role = roleOf(db, note.spent_tx)
+  const batch = role?.role === Role.Card && cardBatchOf(db, role.batch)
+  if (batch) return { type: 'card', batch }
   const spender = getTxn(db, note.spent_tx)
   if (spender?.kind === TxKind.Burn) {
     const recipient = spender.burn_addr ?? ''
@@ -250,22 +274,4 @@ function destinationOf(db: Db, note: NoteRow): Destination {
       .sort((a, b) => b[1] - a[1])
       .map(([address, count]) => ({ address, label: labelOf(address), count })),
   }
-}
-
-/** Treasury-labelled deposits among the closure's mints */
-function treasuryOf(
-  db: Db,
-  txns: Map<string, TxnRow>,
-): { amount: number; count: number } {
-  let amount = 0
-  let count = 0
-  for (const t of txns.values()) {
-    if (t.kind !== TxKind.Mint) continue
-    const d = depositOf(db, t)
-    if (d?.label === TREASURY_LABEL) {
-      amount += d.amount
-      count++
-    }
-  }
-  return { amount, count }
 }

@@ -6,6 +6,7 @@ import type {
   Resolved,
   Status,
 } from '../../src/graph/types'
+import { Address } from './Address'
 import { api, type Direction } from './api'
 import { GraphView } from './GraphView'
 import { PathPanel } from './PathPanel'
@@ -13,6 +14,8 @@ import { DepositTable, WithdrawalTable } from './Tables'
 
 /** Withdrawals of an address shown at first; the rest can be toggled on */
 const INITIAL_WITHDRAWALS = 5
+/** Graph sizes offered one after the other when a graph is truncated */
+const LIMITS = [400, 1000, 2000]
 
 /**
  * One page: a search box, the graph, and the tables behind it. The URL hash
@@ -29,6 +32,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [direction, setDirection] = useState<Direction>('back')
   const [graph, setGraph] = useState<Graph>()
+  const [limit, setLimit] = useState(0)
   const [paths, setPaths] = useState<Path[]>([])
   const [error, setError] = useState<string>()
   const [offline, setOffline] = useState(false)
@@ -82,6 +86,10 @@ export function App() {
     }
   }, [query])
 
+  // A new selection starts from the smallest graph again
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on change
+  useEffect(() => setLimit(0), [selected, direction])
+
   // Load the graph for the selected transactions
   useEffect(() => {
     if (selected.size === 0) {
@@ -90,31 +98,38 @@ export function App() {
     }
     let cancelled = false
     api
-      .graph([...selected], direction)
+      .graph([...selected], direction, LIMITS[limit])
       .then((g) => !cancelled && setGraph(g))
       .catch((e: unknown) => setError(String(e)))
     return () => {
       cancelled = true
     }
-  }, [selected, direction])
+  }, [selected, direction, limit])
 
-  // The story of each selected withdrawal (at most a few at once)
+  // The story of each selected withdrawal (at most a few at once), or of
+  // the searched transaction if it is one
   useEffect(() => {
-    const burns = (summary?.withdrawals ?? [])
-      .filter((w) => selected.has(w.txHash))
-      .slice(0, 3)
+    const burns = summary
+      ? summary.withdrawals
+          .filter((w) => selected.has(w.txHash))
+          .map((w) => w.txHash)
+      : resolved?.type === 'txn'
+        ? [resolved.hash]
+        : []
     if (burns.length === 0) {
       setPaths([])
       return
     }
     let cancelled = false
-    Promise.all(burns.map((w) => api.path(w.txHash)))
-      .then((p) => !cancelled && setPaths(p))
+    Promise.all(
+      burns.slice(0, 3).map((h) => api.path(h).catch(() => undefined)),
+    )
+      .then((p) => !cancelled && setPaths(p.filter((x) => x !== undefined)))
       .catch((e: unknown) => setError(String(e)))
     return () => {
       cancelled = true
     }
-  }, [summary, selected])
+  }, [summary, resolved, selected])
 
   const toggle = (txHash: string) =>
     setSelected((s) => {
@@ -162,17 +177,17 @@ export function App() {
 
       {summary && (
         <section className="card p-3">
-          <div className="mb-2 flex items-baseline gap-3">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
             <span className="mono">{summary.address}</span>
-            {summary.label && <span className="chip">{summary.label}</span>}
+            <Address address={summary.address} quiet />
             <span className="text-xs" style={{ color: 'var(--muted)' }}>
-              {summary.withdrawals.length} withdrawals ·{' '}
-              {summary.deposits.length} deposits
+              {plural(summary.withdrawals.length, 'withdrawal')} ·{' '}
+              {plural(summary.deposits.length, 'deposit')}
             </span>
           </div>
           {summary.withdrawals.length > 0 && (
             <WithdrawalTable
-              withdrawals={summary.withdrawals}
+              withdrawals={[...summary.withdrawals].reverse()}
               selected={selected}
               onToggle={toggle}
             />
@@ -212,6 +227,11 @@ export function App() {
               graph={graph}
               focus={selected}
               onSelect={(h) => setQuery(h)}
+              onMore={
+                limit < LIMITS.length - 1
+                  ? () => setLimit((l) => l + 1)
+                  : undefined
+              }
             />
           </section>
           <section className="card p-3">
@@ -228,14 +248,18 @@ export function App() {
   )
 }
 
+function plural(n: number, word: string): string {
+  return `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`
+}
+
 function SyncStatus({ status }: { status: Status }) {
   return (
     <div
       className="whitespace-nowrap text-xs"
       style={{ color: 'var(--muted)' }}
     >
-      {status.txns.toLocaleString()} txns · height{' '}
-      {status.payyHeight?.toLocaleString() ?? '–'}
+      {status.txns.toLocaleString('en-US')} txns · height{' '}
+      {status.payyHeight?.toLocaleString('en-US') ?? '–'}
     </div>
   )
 }
