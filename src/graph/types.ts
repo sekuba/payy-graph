@@ -37,6 +37,18 @@ export interface NoteEdge {
   reach?: number
 }
 
+/** The deposits of one sender behind withdrawals, bounded together */
+export interface Sender {
+  address: string
+  /** EVM chain id the deposits were bridged from, if they were */
+  chain?: number
+  deposits: number
+  amount: number
+  first: number
+  last: number
+  share: Share
+}
+
 /** How much of the focused withdrawals can have come from one deposit */
 export interface Share {
   min: number
@@ -162,6 +174,9 @@ export interface PathHop {
   time: number
   height: number
   kind: 'withdrawal' | 'send' | 'deposit'
+  /** notes it consumed and created (a proof has two slots of each) */
+  inputs: number
+  outputs: number
   /** withdrawn or deposited amount */
   amount?: number
   /** deposit hops: who deposited */
@@ -205,6 +220,11 @@ export interface Path {
   /** the deposits in its history with their share of it, largest first */
   sources: Deposit[]
   /**
+   * the same by who sent them (on the other chain when bridged), each
+   * sender's deposits bounded together, largest first
+   */
+  senders: Sender[]
+  /**
    * notes from other histories merged in along the way; each held less than
    * a cent, else the walk would have stopped there
    */
@@ -214,6 +234,11 @@ export interface Path {
     value?: number
     min: number
     max?: number
+    /** what the merged note descends from, nearest first */
+    from: {
+      withdrawals: Withdrawal[]
+      deposits: Deposit[]
+    }
   }[]
 }
 
@@ -226,6 +251,8 @@ export interface Graph {
   migration?: Migration
   /** card batches that notes of the graph were paid into */
   batches: CardBatch[]
+  /** seen back from withdrawals: the deposits by sender, largest share first */
+  senders?: Sender[]
   /** traversal stopped at the node limit */
   truncated: boolean
 }

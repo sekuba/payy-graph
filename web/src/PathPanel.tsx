@@ -1,6 +1,12 @@
 import { useState } from 'react'
-import type { Deposit, Destination, Path, PathHop } from '../../src/graph/types'
-import { CHAINS } from '../../src/protocol'
+import type {
+  Deposit,
+  Destination,
+  Path,
+  PathHop,
+  Withdrawal,
+} from '../../src/graph/types'
+import { CHAINS, ORIGIN_CHAINS } from '../../src/protocol'
 import { Address } from './Address'
 import { BridgeText, originName } from './Bridge'
 import {
@@ -13,500 +19,680 @@ import {
   usdc,
 } from './format'
 
-/** Deposits named in the summary of a history's sources */
+/** Deposits named as sources of a mixed history */
 const NAMED_SOURCES = 3
-
-/** Rows of a long history shown before "show all" */
-const INITIAL_ROWS = 12
+/** Rows of one kind listed one by one before they are summed up */
+const LISTED = 3
 
 /**
- * A withdrawal's history: a one-line summary of what came in and what went
- * out, where the funds came from, and every note the wallet released on the
- * way with where each one ended up.
+ * A withdrawal's history as a statement: first the link it shows (where
+ * the money came from, where it went), then what came in, what went out and
+ * what is left, and the transactions behind it on request.
  */
 export function PathPanel({ path }: { path: Path }) {
-  const [all, setAll] = useState(false)
-  const w = path.withdrawal
-  const rows =
-    all || path.hops.length <= INITIAL_ROWS + 2
-      ? path.hops
-      : [
-          ...path.hops.slice(0, INITIAL_ROWS / 2),
-          ...path.hops.slice(-INITIAL_ROWS / 2),
-        ]
-  const hidden = path.hops.length - rows.length
+  const [steps, setSteps] = useState(false)
+  const note = contextOf(path)
   return (
-    <section className="card p-3">
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
-        <span>
-          <span className="mono font-semibold">{usdc(w.amount)} USDC</span>{' '}
-          withdrawn to <Address address={w.recipient} chain={w.chain} />
-        </span>
-        <span className="text-xs" style={{ color: 'var(--muted)' }}>
-          {date(w.time)}
-          {w.chain ? ` · ${CHAINS[w.chain].name}` : ' · pending'}
-          {w.substituted && (
-            <>
-              {' · '}
-              <span className="help" title={FRONTED}>
-                paid early by Payy
-              </span>
-            </>
-          )}
-        </span>
+    <section className="card grid gap-3 p-3">
+      <Link path={path} />
+      <Statement path={path} />
+      {note && (
+        <p className="text-sm" style={{ color: 'var(--ink-2)' }}>
+          {note}
+        </p>
+      )}
+      <div>
+        <button
+          type="button"
+          className="toggle text-xs"
+          onClick={() => setSteps((s) => !s)}
+        >
+          {steps ? 'hide' : 'show'} the {path.hops.length} transactions on Payy
+        </button>
+        {steps && <Steps path={path} />}
       </div>
-      <Flow path={path} />
-      <p className="my-3 text-sm" style={{ color: 'var(--ink-2)' }}>
-        <Origin path={path} />
-        <Merged path={path} />
-      </p>
-      <table className="stack w-full text-left text-xs">
-        <thead style={{ color: 'var(--muted)' }}>
-          <tr>
-            <th className="py-1 font-normal">Time</th>
-            <th className="py-1 font-normal">Event</th>
-            <th className="py-1 font-normal">Counterparty</th>
-            <th className="py-1 text-right font-normal">USDC</th>
-            <th className="py-1 font-normal">Payy tx</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((hop, i) => (
-            <Row
-              key={hop.txHash}
-              hop={hop}
-              merged={path.merged.find((m) => m.txHash === hop.txHash)}
-              gap={
-                hidden > 0 && i === INITIAL_ROWS / 2 ? (
-                  <button
-                    type="button"
-                    className="toggle"
-                    onClick={() => setAll(true)}
-                  >
-                    show {hidden} more
-                  </button>
-                ) : undefined
-              }
-            />
-          ))}
-        </tbody>
-      </table>
     </section>
   )
 }
 
-function Row({
-  hop,
-  merged,
-  gap,
-}: {
-  hop: PathHop
-  /** a note from another history merged in here */
-  merged?: Path['merged'][number]
-  gap?: React.ReactNode
-}) {
+// ---- the link ------------------------------------------------------------
+
+/**
+ * Where the withdrawal's money came from and where it went, side by side:
+ * the deposit (or what can be said of the sources) and the withdrawal, with
+ * the time and the number of transactions between them.
+ */
+function Link({ path }: { path: Path }) {
+  const w = path.withdrawal
+  const o = path.origin
+  const { named } = splitSenders(path)
+  const sources: React.ReactNode[] = []
+  let start: number | undefined
+  let from: string | undefined
+  if (named.length > 0) {
+    // who provably supplied part of it: one sender's deposits, or several
+    start = named[0]?.first
+    from = named[0]?.address
+    for (const g of named) {
+      const only =
+        g.deposits === 1
+          ? path.sources.find((d) => senderOf(d) === g.address)
+          : undefined
+      const whole = named.length === 1 && g.share.min === w.amount
+      const share = whole ? undefined : between(g.share.min, g.share.max)
+      sources.push(
+        only ? (
+          <DepositBox key={g.address} d={only} share={share} />
+        ) : (
+          <Box
+            key={g.address}
+            color="deposit"
+            title={
+              share
+                ? `${share} from ${g.deposits} deposits of`
+                : `${g.deposits} deposits`
+            }
+            amount={usdc(g.amount)}
+          >
+            by{' '}
+            <Address
+              address={g.address}
+              explorer={g.chain ? ORIGIN_CHAINS[g.chain]?.explorer : undefined}
+            />
+            {g.chain ? ` on ${originName(g.chain)}` : ''}
+            <br />
+            {date(g.first).slice(0, 10)} – {date(g.last).slice(0, 10)}
+          </Box>
+        ),
+      )
+    }
+  } else if (o.type === 'deposit' && path.sources.length <= 1) {
+    start = o.deposit?.time ?? o.time
+    from = o.deposit && senderOf(o.deposit)
+    sources.push(
+      o.deposit ? (
+        <DepositBox key="d" d={o.deposit} />
+      ) : (
+        <Box key="d" color="deposit" title="Deposit" amount={usdc(o.amount)}>
+          {date(o.time)} · L1 side not indexed yet
+        </Box>
+      ),
+    )
+  } else if (o.type === 'migration' && path.sources.length === 0) {
+    start = o.time
+    sources.push(
+      <Box
+        key="m"
+        color="muted"
+        title="Migrated balance"
+        amount={
+          o.value !== undefined
+            ? usdc(o.value)
+            : o.min
+              ? `≥ ${usdc(o.min)}`
+              : 'hidden'
+        }
+      >
+        re-issued by Payy {date(o.time).slice(0, 10)}; not linked to the
+        previous chain
+      </Box>,
+    )
+  } else {
+    const n = path.sources.length
+    const open = path.sources.some((d) => d.share?.max === undefined)
+    sources.push(
+      <Box
+        key="mix"
+        color="muted"
+        title="Mixed"
+        amount={`${n}${open ? '+' : ''} deposit${n === 1 ? '' : 's'}${o.type === 'migration' ? ' and a migrated balance' : ''}`}
+        unit=""
+      >
+        none of them provably supplied a cent of it
+      </Box>,
+    )
+  }
+  const same = from !== undefined && from === w.recipient.toLowerCase()
+  const internal = path.hops.filter(
+    (h) => h.kind !== 'deposit' && h.kind !== 'withdrawal',
+  ).length
   return (
-    <>
-      {gap && (
-        <tr className="hairline border-t">
-          <td colSpan={5} className="py-1 text-center">
-            {gap}
-          </td>
-        </tr>
-      )}
-      <tr className="row hairline border-t">
-        <td className="mono whitespace-nowrap py-1 pr-2">{date(hop.time)}</td>
-        <td className="whitespace-nowrap py-1 pr-2">
-          <span
-            className="dot"
-            style={{ background: `var(--${colorOf(hop)})` }}
-          />
-          {merged && !hop.out ? 'Merge' : eventOf(hop)}
-          {hop.recurring && <span className="chip ml-1">monthly</span>}
-        </td>
-        <td className="wide py-1 pr-2">
-          {merged && !hop.out ? (
-            <span style={{ color: 'var(--muted)' }}>
-              a note from another history, under a cent
-            </span>
-          ) : (
-            <Counterparty hop={hop} />
-          )}
-        </td>
-        <td className="mono whitespace-nowrap py-1 text-right">
-          {merged && !hop.out
-            ? between(merged.value ?? merged.min, merged.value ?? merged.max)
-            : amountOf(hop)}
-        </td>
-        <td className="mono py-1 pl-2" data-label="Payy">
-          <a href={payyTxUrl(hop.txHash)} target="_blank" rel="noreferrer">
-            {shortHex(hop.txHash, 4)}
-          </a>
-        </td>
-      </tr>
-    </>
+    <div className="link">
+      <div className="grid gap-2">{sources}</div>
+      <div className="link-arrow text-xs" style={{ color: 'var(--muted)' }}>
+        <span>
+          {[
+            start !== undefined && `${duration(w.time - start)} later`,
+            internal > 0 &&
+              `${internal} transaction${internal === 1 ? '' : 's'}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+        {same && <span className="chip chip-strong">same address</span>}
+      </div>
+      <WithdrawalBox w={w} />
+    </div>
   )
 }
 
-/**
- * What came in and what went out along this history, one line per kind,
- * with the dates they span
- */
-function Flow({ path }: { path: Path }) {
-  const o = path.origin
-  const deposits = path.hops.filter((h) => h.kind === 'deposit')
-  const withdrawals = path.hops.filter((h) => h.kind === 'withdrawal')
-  const card = path.hops.filter((h) => h.out?.destination.type === 'card')
-  const exact = card.filter((h) => h.out?.value !== undefined)
-  const recurring = card.filter((h) => h.recurring)
-  const transfers = path.hops.filter(
-    (h) =>
-      h.kind === 'send' &&
-      h.out &&
-      h.out.destination.type !== 'card' &&
-      h.out.destination.type !== 'unspent',
+function Box({
+  color,
+  title,
+  amount,
+  unit = ' USDC',
+  children,
+}: {
+  color: string
+  title: string
+  amount: string
+  unit?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="link-box" style={{ borderLeftColor: `var(--${color})` }}>
+      <div className="text-xs" style={{ color: 'var(--muted)' }}>
+        {title}
+      </div>
+      <div className="mono font-semibold">
+        {amount}
+        {unit}
+      </div>
+      <div className="text-xs" style={{ color: 'var(--ink-2)' }}>
+        {children}
+      </div>
+    </div>
   )
-  const sum = (hops: PathHop[]) =>
-    hops.reduce((a, h) => a + (h.amount ?? h.out?.value ?? 0), 0)
-  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+}
 
-  const ins: Item[] = []
+function DepositBox({ d, share }: { d: Deposit; share?: string }) {
+  const b = d.bridge
+  return (
+    <Box
+      color="deposit"
+      title={share ? `${share} from a deposit of` : 'Deposit'}
+      amount={usdc(d.amount)}
+    >
+      {b ? (
+        <BridgeText deposit={d} />
+      ) : (
+        <>
+          from <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} />{' '}
+          on {CHAINS[d.chain].name}
+        </>
+      )}
+      <br />
+      {date(d.time)}
+    </Box>
+  )
+}
+
+function WithdrawalBox({ w }: { w: Withdrawal }) {
+  return (
+    <Box color="withdrawal" title="Withdrawn" amount={usdc(w.amount)}>
+      to <Address address={w.recipient} chain={w.chain} />
+      {w.chain ? ` on ${CHAINS[w.chain].name}` : ' · pending'}
+      {w.substituted && (
+        <>
+          {' · '}
+          <span className="help" title={FRONTED}>
+            paid early by Payy
+          </span>
+        </>
+      )}
+      <br />
+      {date(w.time)}
+    </Box>
+  )
+}
+
+/** Who a deposit came from: the sender on the other chain when bridged */
+function senderOf(d: Deposit): string {
+  return (
+    d.bridge?.funder?.address ??
+    d.bridge?.depositor ??
+    d.depositor
+  ).toLowerCase()
+}
+
+function duration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  if (s < 90) return `${s} s`
+  const m = Math.round(s / 60)
+  if (m < 90) return `${m} min`
+  const h = Math.floor(m / 60)
+  if (h < 48) return `${h} h ${m % 60} min`
+  return `${Math.round(h / 24)} days`
+}
+
+// ---- the statement -------------------------------------------------------
+
+interface Line {
+  key: string
+  amount: string
+  what: React.ReactNode
+}
+
+/** What came in, what went out and what is left, as far as it is public */
+function Statement({ path }: { path: Path }) {
+  const o = path.origin
+  const sourceOf = (hop: PathHop) =>
+    path.sources.find((d) => d.txHash === hop.txHash)
+  const ins: Line[] = []
+  const outs: Line[] = []
+  /** exact totals, undefined once something is only bounded */
+  let inTotal: number | undefined = 0
+  let outTotal: number | undefined = 0
+  const addIn = (v: number | undefined) => {
+    inTotal = inTotal === undefined || v === undefined ? undefined : inTotal + v
+  }
+  const addOut = (v: number | undefined) => {
+    outTotal =
+      outTotal === undefined || v === undefined ? undefined : outTotal + v
+  }
+
   if (o.type === 'migration') {
+    addIn(o.value)
     ins.push({
       key: 'migration',
-      what: 'Migrated balance',
       amount:
         o.value !== undefined
           ? usdc(o.value)
           : o.min
             ? `≥ ${usdc(o.min)}`
             : 'hidden',
-      note:
-        o.value === undefined && o.min
-          ? 'exact amount hidden; the minimum follows from what was spent'
-          : undefined,
-      hops: [{ time: o.time }],
+      what: `migrated balance, ${date(o.time).slice(0, 10)}`,
     })
   }
-  if (o.type === 'merge' || o.type === 'limit') {
-    // what can be shown of where the merged histories came from
-    const { named, rest, bounded, others } = splitSources(path)
-    for (const d of named) {
+  const deposits = path.hops.filter((h) => h.kind === 'deposit')
+  for (const h of deposits) addIn(h.amount)
+  if (deposits.length <= LISTED) {
+    for (const h of deposits) {
+      const d = sourceOf(h)
       ins.push({
-        key: d.mintHash,
-        what: 'From a deposit',
-        amount: between(d.share?.min ?? 0, d.share?.max),
-        note: `of ${usdc(d.amount)} deposited${d.bridge ? ` from ${originName(d.bridge.chain)}` : ''}`,
-        hops: [{ time: d.time }],
+        key: h.txHash,
+        amount: usdc(h.amount ?? 0),
+        what: d ? (
+          <>
+            deposit <SourceText d={d} />
+          </>
+        ) : (
+          `deposit, ${date(h.time)}`
+        ),
       })
     }
-    if (o.type === 'merge') {
-      ins.push({
-        key: 'merge',
-        what:
-          named.length > 0
-            ? 'From other histories'
-            : 'Notes from another history',
-        amount:
-          named.length > 0 && rest.length > 0 && bounded
-            ? `≤ ${usdc(others)}`
-            : undefined,
-        hops: [{ time: o.time }],
-      })
-    }
-  }
-  if (deposits.length > 0) {
+  } else {
+    const who = new Set(
+      deposits.map((h) => {
+        const d = sourceOf(h)
+        return d ? senderOf(d) : h.depositor
+      }),
+    )
+    const [one] = who
     ins.push({
       key: 'deposits',
-      what: count(deposits.length, 'deposit'),
-      amount: usdc(sum(deposits)),
-      hops: deposits,
+      amount: usdc(deposits.reduce((a, h) => a + (h.amount ?? 0), 0)),
+      what: (
+        <>
+          {deposits.length} deposits
+          {who.size === 1 && one ? (
+            <>
+              {' '}
+              by <Address address={one} />
+            </>
+          ) : (
+            ` by ${who.size} senders`
+          )}
+          , {span(deposits)}
+        </>
+      ),
     })
   }
-  if (path.merged.length > 0) {
-    const lo = path.merged.reduce((a, n) => a + (n.value ?? n.min), 0)
-    const hi = path.merged.reduce((a, n) => a + (n.value ?? n.max ?? 0), 0)
+  for (const m of path.merged) {
+    addIn(m.value)
+    const w = m.from.withdrawals[0]
+    const d = m.from.deposits[0]
     ins.push({
-      key: 'merged',
-      what:
-        path.merged.length === 1
-          ? 'A note from another history'
-          : `${path.merged.length} notes from other histories`,
-      amount: between(lo, hi),
-      note:
-        path.merged.length === 1
-          ? 'merged in, under a cent'
-          : 'merged in, each under a cent',
-      hops: path.merged,
+      key: `m${m.txHash}`,
+      amount: between(m.value ?? m.min, m.value ?? m.max),
+      what: w ? (
+        <>
+          left over from the history that withdrew {usdc(w.amount)} USDC to{' '}
+          <Address address={w.recipient} chain={w.chain} /> on{' '}
+          {date(w.time).slice(0, 10)}
+        </>
+      ) : d ? (
+        <>
+          from the history of a deposit of {usdc(d.amount)} by{' '}
+          <Address address={d.depositor} chain={d.chain} />
+        </>
+      ) : (
+        'from another history'
+      ),
     })
   }
-  const outs: Item[] = []
-  if (card.length > 0) {
-    outs.push({
-      key: 'card',
-      what: count(card.length, 'card payment'),
-      amount:
-        exact.length === card.length
-          ? usdc(sum(exact))
-          : exact.length > 0
-            ? `${usdc(sum(exact))} known`
-            : 'hidden',
-      note: [
-        recurring.length > 0 && `${recurring.length} monthly`,
-        exact.length < card.length && 'each at most its batch total',
-      ]
-        .filter(Boolean)
-        .join(', '),
-      hops: card,
-    })
+
+  if (o.type === 'merge' || o.type === 'limit') {
+    inTotal = undefined
+    const { named, rest, bounded, others } = splitSenders(path)
+    for (const g of named) {
+      ins.push({
+        key: g.address,
+        amount: between(g.share.min, g.share.max),
+        what: (
+          <>
+            of {g.deposits === 1 ? 'a deposit' : `${g.deposits} deposits`} of{' '}
+            {usdc(g.amount)} by <Address address={g.address} />
+            {g.chain ? ` on ${originName(g.chain)}` : ''}
+          </>
+        ),
+      })
+    }
+    if (rest.length > 0) {
+      const n = rest.reduce((a, g) => a + g.deposits, 0)
+      ins.push({
+        key: 'rest',
+        amount: bounded ? `≤ ${usdc(others)}` : 'mixed',
+        what: `from ${n}${bounded ? '' : '+'} other deposit${n === 1 ? '' : 's'} by ${rest.length} sender${rest.length === 1 ? '' : 's'}${o.type === 'merge' ? `, merged in on ${date(o.time).slice(0, 10)}` : ''}`,
+      })
+    }
   }
-  if (transfers.length > 0) {
-    outs.push({
-      key: 'transfers',
-      what: count(transfers.length, 'transfer'),
-      note: 'to other wallets',
-      hops: transfers,
-    })
-  }
-  if (withdrawals.length > 0) {
+  const withdrawals = path.hops.filter((h) => h.kind === 'withdrawal')
+  for (const h of withdrawals) addOut(h.amount)
+  if (withdrawals.length <= LISTED) {
+    for (const h of withdrawals) {
+      outs.push({
+        key: h.txHash,
+        amount: usdc(h.amount ?? 0),
+        what: (
+          <>
+            withdrawn to{' '}
+            {h.recipient && <Address address={h.recipient} chain={h.chain} />},{' '}
+            {date(h.time)}
+          </>
+        ),
+      })
+    }
+  } else {
     outs.push({
       key: 'withdrawals',
-      what: count(withdrawals.length, 'withdrawal'),
-      amount: usdc(sum(withdrawals)),
-      hops: withdrawals,
+      amount: usdc(withdrawals.reduce((a, h) => a + (h.amount ?? 0), 0)),
+      what: `${withdrawals.length} withdrawals, ${span(withdrawals)}`,
     })
   }
+  const card = path.hops.filter((h) => h.out?.destination.type === 'card')
+  const paid = path.hops.filter(
+    (h) =>
+      h.kind === 'send' &&
+      h.out &&
+      h.out.destination.type !== 'card' &&
+      h.out.destination.type !== 'unspent',
+  )
+  for (const [hops, one, many] of [
+    [card, 'card payment', 'card payments'],
+    [paid, 'payment to another wallet', 'payments to other wallets'],
+  ] as const) {
+    if (hops.length === 0) continue
+    const exact = hops.every((h) => h.out?.value !== undefined)
+    const lo = hops.reduce((a, h) => a + (h.out?.value ?? h.out?.min ?? 0), 0)
+    addOut(exact ? lo : undefined)
+    const recurring = hops.filter((h) => h.recurring).length
+    outs.push({
+      key: one,
+      // an upper bound on hidden amounts says little here
+      amount: exact ? usdc(lo) : lo > 0 ? `≥ ${usdc(lo)}` : 'hidden',
+      what: `${hops.length === 1 ? one : `${hops.length} ${many}`}, ${span(hops)}${recurring ? ` · ${recurring} monthly` : ''}`,
+    })
+  }
+
+  // what is left in notes nobody has spent yet
+  const unspent = path.hops.filter((h) => h.out?.destination.type === 'unspent')
+  let left: string | undefined
+  if (inTotal !== undefined && outTotal !== undefined) {
+    left = usdc(Math.max(0, inTotal - outTotal))
+  } else if (unspent.length > 0) {
+    const exact = unspent.every((h) => h.out?.value !== undefined)
+    const lo = unspent.reduce(
+      (a, h) => a + (h.out?.value ?? h.out?.min ?? 0),
+      0,
+    )
+    const hi = unspent.every((h) => h.out?.max !== undefined)
+      ? unspent.reduce((a, h) => a + (h.out?.value ?? h.out?.max ?? 0), 0)
+      : undefined
+    left = exact
+      ? usdc(lo)
+      : hi !== undefined && hi <= path.withdrawal.amount
+        ? between(lo, hi)
+        : 'hidden'
+  }
+
   return (
     <table className="flow stack text-sm">
       <tbody>
-        <FlowRows label="in" color="var(--deposit)" items={ins} />
-        <FlowRows label="out" color="var(--withdrawal)" items={outs} />
+        <Lines label="in" color="var(--deposit)" lines={ins} />
+        <Lines label="out" color="var(--withdrawal)" lines={outs} />
+        {left !== undefined && unspent.length > 0 && (
+          <Lines
+            label="left"
+            color="var(--muted)"
+            lines={[
+              {
+                key: 'left',
+                amount: left,
+                what: `in ${unspent.length} unspent note${unspent.length === 1 ? '' : 's'}, the wallet's or a recipient's`,
+              },
+            ]}
+          />
+        )}
       </tbody>
     </table>
   )
 }
 
-interface Item {
-  key: string
-  what: string
-  /** USDC, or why there is no figure */
-  amount?: string
-  note?: string
-  hops: { time: number }[]
-}
-
-function FlowRows({
+function Lines({
   label,
   color,
-  items,
+  lines,
 }: {
   label: string
   color: string
-  items: Item[]
+  lines: Line[]
 }) {
-  if (items.length === 0) return null
-  return items.map((item, i) => {
-    const first = item.hops[0]?.time
-    const last = item.hops[item.hops.length - 1]?.time
-    const day = (t: number) => date(t).slice(0, 10)
-    return (
-      <tr key={item.key}>
-        <td className="flow-label" style={{ color }}>
-          {i === 0 ? label : ''}
-        </td>
-        <td className="whitespace-nowrap pr-3">{item.what}</td>
-        <td className="mono whitespace-nowrap pr-3 text-right">
-          {item.amount}
-        </td>
-        <td
-          className="mono whitespace-nowrap pr-3 text-xs"
-          style={{ color: 'var(--muted)' }}
-        >
-          {first !== undefined &&
-            (last !== undefined && day(last) !== day(first)
-              ? `${day(first)} – ${day(last)}`
-              : day(first))}
-        </td>
-        <td className="text-xs" style={{ color: 'var(--muted)' }}>
-          {item.note}
-        </td>
-      </tr>
-    )
-  })
+  return lines.map((line, i) => (
+    <tr key={line.key}>
+      <td className="flow-label" style={{ color }}>
+        {i === 0 ? label : ''}
+      </td>
+      <td className="mono whitespace-nowrap pr-3 text-right">{line.amount}</td>
+      <td className="wide" style={{ color: 'var(--ink-2)' }}>
+        {line.what}
+      </td>
+    </tr>
+  ))
 }
 
-/** The dust merged in on the way, which the walk went past */
-function Merged({ path }: { path: Path }) {
-  const m = path.merged
-  if (m.length === 0) return null
-  const [first] = m
-  const one = m.length === 1 && first
-  return (
-    <span>
-      {' '}
-      {one
-        ? `A note of ${between(first.value ?? first.min, first.value ?? first.max)} USDC from another history was merged in on ${date(first.time)}`
-        : `${m.length} notes from other histories were merged in, each under a cent`}
-      ; less than a cent of the withdrawal can have come from{' '}
-      {one ? 'it' : 'each'}.
-    </span>
+/** A deposit's origin in a few words: its sender, and its chain if bridged */
+function SourceText({ d }: { d: Deposit }) {
+  return d.bridge ? (
+    <>
+      <BridgeText deposit={d} />, {date(d.time)}
+    </>
+  ) : (
+    <>
+      from <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} />,{' '}
+      {date(d.time)}
+    </>
   )
 }
 
-function Origin({ path }: { path: Path }) {
+function span(hops: { time: number }[]): string {
+  const day = (t: number) => date(t).slice(0, 10)
+  const a = hops[0]?.time
+  const b = hops[hops.length - 1]?.time
+  if (a === undefined || b === undefined) return ''
+  return day(a) === day(b) ? day(a) : `${day(a)} – ${day(b)}`
+}
+
+// ---- context -------------------------------------------------------------
+
+/** A sentence where the statement needs one: the migration, or a mix */
+function contextOf(path: Path): React.ReactNode {
   const o = path.origin
-  const first = path.hops[0]
-  switch (o.type) {
-    case 'deposit':
-      return o.deposit ? (
-        <span>
-          Funded by a deposit of {usdc(o.deposit.amount)} USDC from{' '}
-          <Address
-            address={o.deposit.depositor}
-            chain={o.deposit.chain}
-            l1Tx={o.deposit.l1Tx}
-          />{' '}
-          on {CHAINS[o.deposit.chain].name}, {date(o.deposit.time)}
-          {o.deposit.bridge && (
-            <>
-              {' '}
-              (<BridgeText deposit={o.deposit} />)
-            </>
-          )}
-          .
-        </span>
-      ) : (
-        <span>
-          Funded by a deposit of {usdc(o.amount)} USDC on {date(o.time)}; its L1
-          side is not indexed yet.
-        </span>
-      )
-    case 'migration': {
-      const d = o.distribution
-      return (
-        <span>
-          The history starts on {date(o.time)} with a note from the migration
-          distribution, which re-issued the balances of the previous Payy chain
-          {d && (
-            <>
-              : {d.released.toLocaleString('en-US')} notes paid out by Payy
-              between {date(d.start)} and {date(d.end)}, funded by{' '}
-              {usdc(d.deposited)} USDC of treasury deposits
-            </>
-          )}
-          . Which old wallet received which note was decided off-chain, so
-          nothing links this wallet to its history before the migration.
-        </span>
-      )
-    }
-    case 'merge':
-      return (
-        <span>
-          Before {date(o.time)} the funds came from two separate notes, merged
-          then; both histories are in the graph below. <Sources path={path} />
-        </span>
-      )
-    default:
-      return (
-        <span>
-          History longer than {path.hops.length} transactions
-          {first ? `, shown from ${date(first.time)}` : ''}.{' '}
-          <Sources path={path} />
-        </span>
-      )
+  if (o.type === 'migration') {
+    const d = o.distribution
+    return (
+      <>
+        The history starts with a note from the migration of{' '}
+        {date(o.time).slice(0, 10)}, when Payy re-issued the balances of its
+        previous chain
+        {d && (
+          <>
+            : {d.released.toLocaleString('en-US')} notes paid out from{' '}
+            {usdc(d.deposited)} USDC of treasury deposits
+          </>
+        )}
+        . Which old wallet got which note was decided off-chain, so nothing
+        links this wallet to its history before.
+      </>
+    )
   }
+  if (o.type === 'merge') {
+    const truncated = path.sources.some((d) => d.share?.max === undefined)
+    return (
+      <>
+        On {date(o.time)} the wallet merged two notes with separate histories,
+        so the funds are mixed: USDC in a transaction is interchangeable, and
+        only amounts can tell how much came from where.
+        {truncated &&
+          ' The history behind it is larger than the walk, so only lower bounds are shown.'}
+      </>
+    )
+  }
+  if (o.type === 'limit') {
+    return `The history is longer than ${path.hops.length} transactions and is shown from ${date(path.hops[0]?.time ?? 0)}.`
+  }
+  return undefined
 }
 
 /**
- * The deposits that must have supplied at least a cent of the withdrawal
- * (the first few), the rest, and a bound on what the rest supplied together
- * when every one of them is bounded
+ * The senders whose deposits together must have supplied at least a cent
+ * of the withdrawal (the first few), the rest, and a bound on the rest
  */
-function splitSources(path: Path) {
-  const named = path.sources
-    .filter((d) => (d.share?.min ?? 0) >= DUST)
+function splitSenders(path: Path) {
+  const named = path.senders
+    .filter((g) => g.share.min >= DUST)
     .slice(0, NAMED_SOURCES)
-  const rest = path.sources.filter((d) => !named.includes(d))
-  const covered = named.reduce((a, d) => a + (d.share?.min ?? 0), 0)
-  const bounded = rest.every((d) => d.share?.max !== undefined)
+  const rest = path.senders.filter((g) => !named.includes(g))
+  const covered = named.reduce((a, g) => a + g.share.min, 0)
+  const bounded = rest.every((g) => g.share.max !== undefined)
   const others = Math.min(
     path.withdrawal.amount - covered,
-    rest.reduce((a, d) => a + (d.share?.max ?? 0), 0),
+    rest.reduce((a, g) => a + (g.share.max ?? 0), 0),
   )
   return { named, rest, bounded, others }
 }
 
-/**
- * Which deposits the withdrawal can be shown to come from: those that must
- * have supplied at least a cent of it, and a bound on all the others
- */
-function Sources({ path }: { path: Path }) {
-  const w = path.withdrawal
-  const { named, rest, bounded, others } = splitSources(path)
-  const count = (n: number) => `${n} ${n === 1 ? 'deposit' : 'deposits'}`
+// ---- the transactions ----------------------------------------------------
+
+function Steps({ path }: { path: Path }) {
   return (
-    <>
-      {named.map((d, i) => (
-        <span key={d.mintHash}>
-          {i === 0 ? '' : ' '}
-          {d.share?.min === d.share?.max ? '' : 'At least '}
-          <span className="mono">{usdc(d.share?.min ?? 0)}</span>
-          {i === 0 ? ` of the ${usdc(w.amount)} USDC` : ' USDC'} came from{' '}
-          <DepositText d={d} />.
-        </span>
-      ))}
-      {rest.length > 0 &&
-        (bounded ? (
-          <span>
-            {' '}
-            {named.length === 0
-              ? `The ${count(rest.length)}`
-              : rest.length === 1
-                ? 'The other deposit'
-                : `The other ${count(rest.length)}`}{' '}
-            in its history can have contributed at most{' '}
-            <span className="mono">{usdc(others)}</span> USDC
-            {rest.length > 1 ? ' together' : ''}.
-          </span>
-        ) : (
-          <span>
-            {' '}
-            {count(rest.length)} {named.length > 0 ? 'more ' : ''}
-            {rest.length === 1 ? 'is' : 'are'} in its history, walked back as
-            far as the view goes.
-          </span>
+    <table className="stack mt-2 w-full text-left text-xs">
+      <thead style={{ color: 'var(--muted)' }}>
+        <tr>
+          <th className="py-1 font-normal">Time</th>
+          <th className="py-1 font-normal">Event</th>
+          <th className="py-1 font-normal">Detail</th>
+          <th className="py-1 text-right font-normal">USDC</th>
+          <th className="py-1 font-normal">Payy tx</th>
+        </tr>
+      </thead>
+      <tbody>
+        {path.hops.map((hop) => (
+          <Row
+            key={hop.txHash}
+            hop={hop}
+            merged={path.merged.find((m) => m.txHash === hop.txHash)}
+          />
         ))}
-    </>
+      </tbody>
+    </table>
   )
 }
 
-function DepositText({ d }: { d: Deposit }) {
+function Row({
+  hop,
+  merged,
+}: {
+  hop: PathHop
+  /** a note from another history merged in here */
+  merged?: Path['merged'][number]
+}) {
+  const [event, detail] = describe(hop, merged)
   return (
-    <>
-      the deposit of {usdc(d.amount)} USDC by{' '}
-      <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} /> on{' '}
-      {date(d.time)}
-      {d.bridge && (
-        <>
-          {' '}
-          (<BridgeText deposit={d} />)
-        </>
-      )}
-    </>
+    <tr className="row hairline border-t">
+      <td className="mono whitespace-nowrap py-1 pr-2">{date(hop.time)}</td>
+      <td className="whitespace-nowrap py-1 pr-2">
+        <span
+          className="dot"
+          style={{ background: `var(--${colorOf(hop)})` }}
+        />
+        {event}
+        {hop.recurring && <span className="chip ml-1">monthly</span>}
+      </td>
+      <td className="wide py-1 pr-2">{detail}</td>
+      <td className="mono whitespace-nowrap py-1 text-right">
+        {merged && !hop.out
+          ? between(merged.value ?? merged.min, merged.value ?? merged.max)
+          : amountOf(hop)}
+      </td>
+      <td className="mono py-1 pl-2" data-label="Payy">
+        <a href={payyTxUrl(hop.txHash)} target="_blank" rel="noreferrer">
+          {shortHex(hop.txHash, 4)}
+        </a>
+      </td>
+    </tr>
   )
+}
+
+/**
+ * What a transaction did for this history. A proof consumes up to two notes
+ * and creates up to two; which of them stayed with the wallet follows from
+ * which ones it spent again.
+ */
+function describe(
+  hop: PathHop,
+  merged: Path['merged'][number] | undefined,
+): [string, React.ReactNode] {
+  const muted = (s: string) => (
+    <span style={{ color: 'var(--muted)' }}>{s}</span>
+  )
+  if (hop.kind === 'deposit' || hop.kind === 'withdrawal') {
+    return [
+      hop.kind === 'deposit' ? 'Deposit' : 'Withdrawal',
+      <Counterparty key="c" hop={hop} />,
+    ]
+  }
+  if (hop.out?.destination.type === 'card') {
+    return ['Card payment', <DestinationText key="d" d={hop.out.destination} />]
+  }
+  if (merged && !hop.out) {
+    return ['Merged in', muted('a note from another history, under a cent')]
+  }
+  if (hop.out?.destination.type === 'unspent') {
+    return ['Split', muted('one note continues, the other is unspent')]
+  }
+  if (hop.out) {
+    return ['Payment', <DestinationText key="d" d={hop.out.destination} />]
+  }
+  if (hop.inputs === 2) return ['Merge', muted('two of its own notes into one')]
+  if (hop.outputs === 2) return ['Split', muted('one note into two, both kept')]
+  return ['Send', muted('to itself')]
 }
 
 function colorOf(hop: PathHop): string {
   if (hop.kind === 'deposit') return 'deposit'
   if (hop.kind === 'withdrawal') return 'withdrawal'
   return hop.out?.destination.type === 'card' ? 'card' : 'send'
-}
-
-function eventOf(hop: PathHop): string {
-  if (hop.kind === 'deposit') return 'Deposit'
-  if (hop.kind === 'withdrawal') return 'Withdrawal'
-  if (hop.out?.destination.type === 'card') return 'Card payment'
-  return hop.out ? 'Transfer' : 'Split or merge'
 }
 
 function amountOf(hop: PathHop): string {
@@ -527,26 +713,19 @@ function Counterparty({ hop }: { hop: PathHop }) {
       <span style={{ color: 'var(--muted)' }}>deposit not indexed</span>
     )
   }
-  if (hop.kind === 'withdrawal') {
-    return (
-      <span>
-        {hop.recipient && (
-          <>
-            to <Address address={hop.recipient} chain={hop.chain} />
-          </>
-        )}
-        {hop.out && (
-          <span className="ml-2" style={{ color: 'var(--muted)' }}>
-            change: <DestinationText d={hop.out.destination} />
-          </span>
-        )}
-      </span>
-    )
-  }
-  return hop.out ? (
-    <DestinationText d={hop.out.destination} />
-  ) : (
-    <span style={{ color: 'var(--muted)' }}>kept by the wallet</span>
+  return (
+    <span>
+      {hop.recipient && (
+        <>
+          to <Address address={hop.recipient} chain={hop.chain} />
+        </>
+      )}
+      {hop.out && (
+        <span className="ml-2" style={{ color: 'var(--muted)' }}>
+          change: <DestinationText d={hop.out.destination} />
+        </span>
+      )}
+    </span>
   )
 }
 

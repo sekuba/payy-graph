@@ -20,6 +20,8 @@ import type {
   Deposit,
   Graph,
   Resolved,
+  Sender,
+  Share,
   Status,
   Withdrawal,
 } from './types'
@@ -243,15 +245,23 @@ export function graphAround(
         ? collect(db, txHashes, { backward: true, forward: false }, limit)
         : sub
       : undefined
-  const flow = behind && flowInto(behind, bounds, burns)
+  const found = [...sub.txns.values()].flatMap((t) => {
+    const d = t.kind === TxKind.Mint && depositOf(db, t)
+    return d ? [d] : []
+  })
+  const flow =
+    behind && flowInto(behind, bounds, burns, (h) => senderOfTx(found, h))
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
+  for (const d of found) {
+    deposits.push({
+      ...d,
+      hops: sub.hops.get(d.txHash),
+      share: flow?.shares.get(d.txHash),
+    })
+  }
   for (const t of sub.txns.values()) {
     const hops = sub.hops.get(t.hash)
-    if (t.kind === TxKind.Mint) {
-      const d = depositOf(db, t)
-      if (d) deposits.push({ ...d, hops, share: flow?.shares.get(t.hash) })
-    }
     if (t.kind === TxKind.Burn) {
       const reach = burns.includes(t.hash) ? undefined : flow?.txns.get(t.hash)
       withdrawals.push({ ...withdrawalOf(db, t), hops, reach })
@@ -305,8 +315,58 @@ export function graphAround(
     withdrawals: withdrawals.sort(nearestFirst),
     migration: roles.has(Role.Migration) ? migrationSummary(db) : undefined,
     batches: [...batches].flatMap((b) => cardBatchOf(db, b) ?? []),
+    // only what is behind the withdrawals, not deposits after them
+    senders:
+      flow &&
+      sendersOf(
+        found.filter((d) => behind?.txns.has(d.txHash)),
+        flow.groups,
+      ),
     truncated: sub.truncated,
   }
+}
+
+/** Who sent a deposit: its sender on the other chain when bridged in */
+export function senderOf(d: Deposit): string {
+  return (
+    d.bridge?.funder?.address ??
+    d.bridge?.depositor ??
+    d.depositor
+  ).toLowerCase()
+}
+
+/** The sender of the deposit made by a mint tx, among `deposits` */
+export function senderOfTx(
+  deposits: Deposit[],
+  txHash: string,
+): string | undefined {
+  const d = deposits.find((x) => x.txHash === txHash)
+  return d && senderOf(d)
+}
+
+/** Deposits by who sent them, with the group shares, largest first */
+export function sendersOf(
+  deposits: Deposit[],
+  groups: Map<string, Share>,
+): Sender[] {
+  return [...groups]
+    .map(([address, share]) => {
+      const own = deposits.filter((d) => senderOf(d) === address)
+      return {
+        address,
+        chain: own[0]?.bridge?.chain,
+        deposits: own.length,
+        amount: own.reduce((a, d) => a + d.amount, 0),
+        first: Math.min(...own.map((d) => d.time)),
+        last: Math.max(...own.map((d) => d.time)),
+        share,
+      }
+    })
+    .sort(
+      (a, b) =>
+        (b.share.max ?? b.share.min) - (a.share.max ?? a.share.min) ||
+        b.share.min - a.share.min,
+    )
 }
 
 /** Deposits with the largest share first: by its upper, then lower bound */

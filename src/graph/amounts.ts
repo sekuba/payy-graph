@@ -41,7 +41,7 @@ export function inferAmounts(
   }
 
   // Exact values: sum(inputs) - sum(outputs) = burned - minted, one row per tx
-  const value = solve(
+  const { values: value, rows } = solve(
     [...equations.values()].map((eq) => {
       const row = new Map<string, bigint>()
       for (const n of eq.inputs) row.set(n, (row.get(n) ?? 0n) + 1n)
@@ -105,6 +105,30 @@ export function inferAmounts(
       side(eq.inputs, eq.outputs, eq.minted, eq.burned)
       side(eq.outputs, eq.inputs, eq.burned, eq.minted)
     }
+    // The same on what elimination left of several notes together, e.g.
+    // a + b = 0.019723 when neither is known alone: each note in it is the
+    // constant minus the others' terms. Values are whole micro USDC.
+    for (const row of rows) {
+      for (const [n, c] of row.coefficients) {
+        if (value.has(n)) continue
+        let restLo = row.constant
+        let restHi = row.constant
+        for (const [m, d] of row.coefficients) {
+          if (m === n) continue
+          const l = lo(m)
+          const h = hi(m) ?? Number.POSITIVE_INFINITY
+          restLo -= d > 0 ? d * h : d * l
+          restHi -= d > 0 ? d * l : d * h
+        }
+        const [a, b] =
+          c > 0 ? [restLo / c, restHi / c] : [restHi / c, restLo / c]
+        tighten(
+          n,
+          Math.max(0, Number.isFinite(a) ? Math.ceil(a - 1e-6) : 0),
+          Number.isFinite(b) ? Math.floor(b + 1e-6) : undefined,
+        )
+      }
+    }
     if (!tightened) break
   }
 
@@ -130,9 +154,16 @@ interface Equation {
  * Gauss-Jordan elimination over exact rationals. Returns the variables whose
  * value the system determines: after reduction, a pivot row with no other
  * variable left. Negative solutions mean the data is inconsistent and are
- * dropped.
+ * dropped. Also returns the reduced rows that still hold a few variables,
+ * which bound them.
  */
-function solve(equations: Equation[]): Map<string, number> {
+/** Rows of a few notes left after elimination, for bounds */
+const BOUND_ROW_SIZE = 8
+
+function solve(equations: Equation[]): {
+  values: Map<string, number>
+  rows: { coefficients: Map<string, number>; constant: number }[]
+} {
   type Row = { coefficients: Map<string, Fraction>; constant: Fraction }
   const rows: Row[] = equations.map((eq) => ({
     coefficients: new Map(
@@ -186,13 +217,25 @@ function solve(equations: Equation[]): Map<string, number> {
     pivots.push({ variable, row })
   }
   const result = new Map<string, number>()
+  const partial: { coefficients: Map<string, number>; constant: number }[] = []
+  const toNumber = (f: Fraction) => Number(f.num) / Number(f.den)
   for (const { variable, row } of pivots) {
-    if (row.coefficients.size !== 1) continue
+    if (row.coefficients.size > 1) {
+      if (row.coefficients.size <= BOUND_ROW_SIZE) {
+        partial.push({
+          coefficients: new Map(
+            [...row.coefficients].map(([k, v]) => [k, toNumber(v)]),
+          ),
+          constant: toNumber(row.constant),
+        })
+      }
+      continue
+    }
     const { num, den } = row.constant
     if (num % den !== 0n || num < 0n) continue
     result.set(variable, Number(num / den))
   }
-  return result
+  return { values: result, rows: partial }
 }
 
 interface Fraction {

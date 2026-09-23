@@ -11,10 +11,11 @@ import { api, type Direction } from './api'
 import { GraphView } from './GraphView'
 import { Live } from './Live'
 import { PathPanel } from './PathPanel'
+import { SourcesGraph } from './SourcesGraph'
 import { DepositTable, WithdrawalTable } from './Tables'
 
 /** Withdrawals of an address shown at first; the rest can be toggled on */
-const INITIAL_WITHDRAWALS = 5
+const INITIAL_WITHDRAWALS = 1
 /** Graph sizes offered one after the other when a graph is truncated */
 const LIMITS = [400, 1000, 2000]
 
@@ -33,6 +34,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [direction, setDirection] = useState<Direction>('back')
   const [graph, setGraph] = useState<Graph>()
+  const [view, setView] = useState<'sources' | 'transactions'>('sources')
   const [limit, setLimit] = useState(0)
   const [paths, setPaths] = useState<Path[]>([])
   const [error, setError] = useState<string>()
@@ -240,34 +242,58 @@ export function App() {
 
       {graph && (
         <>
-          <section className="card relative min-h-[420px] flex-1">
-            <div className="absolute top-3 left-3 z-10 flex gap-1 text-xs">
-              {(['back', 'both', 'forward'] as Direction[]).map((d) => (
+          {sourcesOf(graph, selected) && (
+            <div className="flex gap-1 text-xs">
+              {(['sources', 'transactions'] as const).map((v) => (
                 <button
-                  key={d}
+                  key={v}
                   type="button"
-                  className={`toggle ${direction === d ? 'on' : ''}`}
-                  onClick={() => setDirection(d)}
+                  className={`toggle ${view === v ? 'on' : ''}`}
+                  onClick={() => setView(v)}
                 >
-                  {d === 'back'
-                    ? 'to deposits'
-                    : d === 'forward'
-                      ? 'to withdrawals'
-                      : 'both'}
+                  {v === 'sources' ? 'where it came from' : 'all transactions'}
                 </button>
               ))}
             </div>
-            <GraphView
-              graph={graph}
-              focus={selected}
-              onSelect={(h) => setQuery(h)}
-              onMore={
-                limit < LIMITS.length - 1
-                  ? () => setLimit((l) => l + 1)
-                  : undefined
-              }
-            />
-          </section>
+          )}
+          {sourcesOf(graph, selected) && view === 'sources' ? (
+            <section className="card p-3">
+              <SourcesGraph
+                graph={graph}
+                burn={sourcesOf(graph, selected) ?? ''}
+                onSelect={(h) => setQuery(h)}
+              />
+            </section>
+          ) : (
+            <section className="card relative min-h-[420px] flex-1">
+              <div className="absolute top-3 left-3 z-10 flex gap-1 text-xs">
+                {(['back', 'both', 'forward'] as Direction[]).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`toggle ${direction === d ? 'on' : ''}`}
+                    onClick={() => setDirection(d)}
+                  >
+                    {d === 'back'
+                      ? 'to deposits'
+                      : d === 'forward'
+                        ? 'to withdrawals'
+                        : 'both'}
+                  </button>
+                ))}
+              </div>
+              <GraphView
+                graph={graph}
+                focus={selected}
+                onSelect={(h) => setQuery(h)}
+                onMore={
+                  limit < LIMITS.length - 1
+                    ? () => setLimit((l) => l + 1)
+                    : undefined
+                }
+              />
+            </section>
+          )}
           <section className="card p-3">
             <DepositTable deposits={graph.deposits} />
             {graph.withdrawals.length > 0 && (
@@ -280,6 +306,17 @@ export function App() {
       )}
     </div>
   )
+}
+
+/**
+ * The withdrawal a sources view can be drawn for: exactly one selected,
+ * and the graph gives shares for it
+ */
+function sourcesOf(graph: Graph, selected: Set<string>): string | undefined {
+  if (selected.size !== 1) return undefined
+  const [burn] = selected
+  const w = graph.withdrawals.find((x) => x.txHash === burn)
+  return w && graph.deposits.some((d) => d.share) ? w.txHash : undefined
 }
 
 function plural(n: number, word: string): string {

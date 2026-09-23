@@ -22,11 +22,15 @@ const NEW_KEY = 'traces_height'
 const BACKFILL_KEY = 'traces_backfill_height'
 const VERSION_KEY = 'traces_version'
 /**
- * Bumped when the walk changes what it finds. 2: merges with a note of less
- * than a cent are walked through, so histories that began with such a merge
- * (or ran into the limit) are traced again.
+ * Bumped when the walk changes what it finds, with the origins that are
+ * traced again. 2: merges with a note of less than a cent are walked
+ * through. 3: the walk goes ten times further back.
  */
-const VERSION = 2
+const VERSION = 3
+const RETRACE: Record<number, string[]> = {
+  2: ['merge', 'limit'],
+  3: ['limit'],
+}
 
 interface TraceRow {
   burn_tx: string
@@ -67,7 +71,7 @@ export function fromRow(row: TraceRow): Trace {
 }
 
 export function computeTrace(db: Db, burn: TxnRow): Trace {
-  const path = walkPath(db, burn)
+  const path = walkPath(db, burn, DEFAULT_LIMIT)
   const closure = collect(
     db,
     [burn.hash],
@@ -112,13 +116,19 @@ export function deriveTraces(db: Db, budgetMs: number): void {
   const started = Date.now()
   const top =
     one<{ h: number | null }>(db, 'select max(height) as h from txn')?.h ?? 0
-  if (Number(getSync(db, VERSION_KEY) ?? 1) < VERSION) {
+  const version = Number(getSync(db, VERSION_KEY) ?? 1)
+  if (version < VERSION) {
+    const origins = new Set<string>()
+    for (let v = version + 1; v <= VERSION; v++) {
+      for (const o of RETRACE[v] ?? []) origins.add(o)
+    }
     transaction(db, () => {
-      db.exec(`delete from trace where origin in ('merge', 'limit')`)
+      const list = [...origins].map((o) => `'${o}'`).join(', ')
+      if (list) db.exec(`delete from trace where origin in (${list})`)
       setSync(db, BACKFILL_KEY, String(top))
       setSync(db, VERSION_KEY, String(VERSION))
     })
-    log('traces', { version: VERSION, retracing: 'merge and limit' })
+    log('traces', { version: VERSION, retracing: [...origins].join(', ') })
   }
   const done = Number(getSync(db, NEW_KEY) ?? top)
   const backfill = Number(getSync(db, BACKFILL_KEY) ?? done)

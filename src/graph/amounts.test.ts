@@ -129,4 +129,36 @@ describe(inferAmounts.name, () => {
     expect(amounts.get('y')?.value).toEqual(45)
     expect(amounts.get('x')?.value).toEqual(55)
   })
+
+  it('bounds notes that elimination leaves only as a sum', () => {
+    // the withdrawal of 2026-09-23: a deposit is split and rejoined around a
+    // merge with 0.007 and a split whose other note stays unspent; f and
+    // the change h are unknown alone, but f + h = 0.019723
+    const g = graph(
+      [
+        { hash: 'mint', kind: TxKind.Mint, amount: 2_892_723 },
+        { hash: 'dustMint', kind: TxKind.Mint, amount: 7_000 },
+        { hash: 'split', kind: TxKind.Send },
+        { hash: 'merge', kind: TxKind.Send },
+        { hash: 'split2', kind: TxKind.Send },
+        { hash: 'rejoin', kind: TxKind.Send },
+        { hash: 'burn', kind: TxKind.Burn, amount: 2_880_000 },
+      ],
+      [
+        { id: 'a', from: 'mint', to: 'split' },
+        { id: 'b', from: 'split', to: 'merge' },
+        { id: 'c', from: 'split', to: 'rejoin' },
+        { id: 'dust', from: 'dustMint', to: 'merge' },
+        { id: 'd', from: 'merge', to: 'split2' },
+        { id: 'e', from: 'split2', to: 'rejoin' },
+        { id: 'f', from: 'split2' },
+        { id: 'g', from: 'rejoin', to: 'burn' },
+        { id: 'h', from: 'burn' },
+      ],
+    )
+    const amounts = inferAmounts(g)
+    expect(amounts.get('f')?.max).toEqual(19_723)
+    expect(amounts.get('h')?.max).toEqual(19_723)
+    expect(amounts.get('g')?.min).toEqual(2_880_000)
+  })
 })

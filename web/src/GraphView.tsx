@@ -84,6 +84,25 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
     setView({ x: cw / 2 - cx * k, y: ch / 2 - cy * k, k })
   }, [layout, focus])
 
+  // iOS Safari ignores touch-action on SVG and scrolls or zooms the page
+  // instead of passing the gesture on as pointer events, so its default
+  // touch handling is turned off inside the graph (listeners that may
+  // cancel must not be passive, which React's are).
+  useEffect(() => {
+    const el = container.current
+    if (!el) return
+    const stop = (e: Event) => e.preventDefault()
+    const touch = { passive: false } as const
+    el.addEventListener('touchmove', stop, touch)
+    el.addEventListener('gesturestart', stop, touch)
+    el.addEventListener('gesturechange', stop, touch)
+    return () => {
+      el.removeEventListener('touchmove', stop)
+      el.removeEventListener('gesturestart', stop)
+      el.removeEventListener('gesturechange', stop)
+    }
+  }, [])
+
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const px = e.clientX - rect.left
@@ -154,7 +173,11 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
   }
 
   return (
-    <div ref={container} className="relative h-full w-full overflow-hidden">
+    <div
+      ref={container}
+      className="relative h-full w-full overflow-hidden"
+      style={{ touchAction: 'none' }}
+    >
       <svg
         className="h-full w-full cursor-grab select-none"
         onWheel={onWheel}

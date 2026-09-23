@@ -67,9 +67,13 @@ describe(flowInto.name, () => {
     // the merge with 0.007 is walked through, the split of mint2 rejoined
     expect(path.origin.type).toEqual('deposit')
     expect(path.hops[0]?.txHash).toEqual('mint2')
-    expect(path.merged).toEqual([
-      { txHash: 'merge', time: 10, value: 7_000, min: 7_000, max: 7_000 },
-    ])
+    const [merged] = path.merged
+    expect(path.merged.length).toEqual(1)
+    expect([merged?.txHash, merged?.value]).toEqual(['merge', 7_000])
+    // what was left of the history that withdrew 6 (the payee's 3.06 is
+    // ahead of it, not behind)
+    expect(merged?.from.withdrawals.map((w) => w.amount)).toEqual([6_000_000])
+    expect(merged?.from.deposits.map((d) => d.txHash)).toEqual(['mint1'])
     expect(path.sources.map((d) => [d.txHash, d.share])).toEqual([
       ['mint2', { min: 2_873_000, max: 2_880_000 }],
       ['mint1', { min: 0, max: 7_000 }],
@@ -109,5 +113,21 @@ describe(flowInto.name, () => {
       forward: true,
     })
     expect(forward.notes.every((n) => n.reach === undefined)).toEqual(true)
+  })
+
+  it('counts a deposit that splits and rejoins once', () => {
+    const db = openDb(':memory:')
+    insertTxns(db, [
+      txn('mint', 1, 2, [], ['a'], 100),
+      txn('split', 2, 1, ['a'], ['b', 'c']),
+      txn('rejoin', 3, 1, ['b', 'c'], ['d']),
+      txn('burn', 4, 3, ['d'], ['e'], 60, addr(0xaa)),
+    ])
+    db.prepare(
+      `insert into deposit (chain, mint_hash, block, tx, log_index, time, depositor, amount)
+       values ('ethereum', 'mh', 1, '0x1', 0, 1, ?, 100)`,
+    ).run('0x00000000000000000000000000000000000000d1')
+    const g = graphAround(db, ['burn'], { backward: true, forward: false })
+    expect(g.deposits[0]?.share).toEqual({ min: 60, max: 60 })
   })
 })

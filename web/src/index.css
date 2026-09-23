@@ -202,3 +202,40 @@ th + th {
     display: none;
   }
 }
+/* A withdrawal's link: sources, an arrow, the withdrawal; stacked on phones */
+.link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.link-box {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--page);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.link-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.link-arrow::after {
+  content: "→";
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+}
+@media (max-width: 639px) {
+  .link {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .link-arrow::after {
+    content: "↓";
+  }
+}

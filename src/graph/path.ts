@@ -15,17 +15,27 @@ import {
 import {
   bySize,
   cardBatchOf,
-  DEFAULT_LIMIT,
   depositOf,
   inferWithBatches,
+  senderOfTx,
+  sendersOf,
   settlementChain,
   withdrawalOf,
 } from './queries'
 import { migrationSummary, Role, roleOf } from './roles'
 import { flowInto } from './sources'
-import type { Destination, Path, PathHop, PathOrigin } from './types'
+import type {
+  Deposit,
+  Destination,
+  Path,
+  PathHop,
+  PathOrigin,
+  Withdrawal,
+} from './types'
 
-const MAX_HOPS = 300
+const MAX_HOPS = 3000
+/** transactions loaded behind a withdrawal for its amounts and shares */
+export const PATH_LIMIT = 1000
 /** how far to follow a payment note forward when looking for its payout */
 const FORWARD_LIMIT = 40
 /** how far two merged notes may be apart before they count as separate histories */
@@ -43,7 +53,7 @@ const REJOIN_LIMIT = 12
  * those ended up is looked up forward, which lists the spends associated
  * with this history.
  */
-export function walkPath(db: Db, burn: TxnRow): Path {
+export function walkPath(db: Db, burn: TxnRow, limit = PATH_LIMIT): Path {
   // Amounts first, which tell dust from funds: the backward closure, plus
   // side branches followed forward, so a payment withdrawn in full gets its
   // value from that withdrawal, and the card batch of each card payment,
@@ -52,7 +62,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     db,
     [burn.hash],
     { backward: true, forward: false },
-    DEFAULT_LIMIT,
+    limit,
   )
   const bounds = inferWithBatches(db, withSideBranches(db, closure))
   const dust = (n: NoteRow) => {
@@ -129,13 +139,18 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     .map(({ txn, notes }) => hopOf(db, txn, notes[0], bounds))
     .sort((a, b) => a.time - b.time || a.height - b.height)
   markRecurring(hops)
-  const { shares } = flowInto(closure, bounds, [burn.hash])
-  const sources = [...closure.txns.values()]
-    .flatMap((t) => {
-      const d = t.kind === TxKind.Mint && depositOf(db, t)
-      return d ? [{ ...d, share: shares.get(t.hash) }] : []
-    })
+  // who sent each deposit: on the other chain when bridged in
+  const deposits = [...closure.txns.values()].flatMap((t) => {
+    const d = t.kind === TxKind.Mint && depositOf(db, t)
+    return d ? [d] : []
+  })
+  const { shares, groups } = flowInto(closure, bounds, [burn.hash], (h) =>
+    senderOfTx(deposits, h),
+  )
+  const sources = deposits
+    .map((d) => ({ ...d, share: shares.get(d.txHash) }))
     .sort(bySize)
+  const senders = sendersOf(deposits, groups)
   // notes from outside the walked history, merged in on the way
   // (not the note the walk arrived by where it stopped: a merge, the
   // migration or the limit)
@@ -153,6 +168,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
         txHash: t.hash,
         time: t.time,
         ...(bounds.get(n.commitment) ?? { min: 0 }),
+        from: descent(db, n),
       })),
   )
   return {
@@ -160,7 +176,44 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     hops,
     origin,
     sources,
+    senders,
     merged,
+  }
+}
+
+/** How far back a merged-in note's own history is looked at */
+const DESCENT_LIMIT = 60
+/** Withdrawals and deposits of it that are listed */
+const DESCENT_SHOWN = 3
+
+/**
+ * What a note merged in from another history descends from: the nearest
+ * withdrawals and deposits behind it. Those are what the merge connects
+ * to this withdrawal.
+ */
+function descent(
+  db: Db,
+  note: NoteRow,
+): { withdrawals: Withdrawal[]; deposits: Deposit[] } {
+  if (!note.created_tx) return { withdrawals: [], deposits: [] }
+  const sub = collect(
+    db,
+    [note.created_tx],
+    { backward: true, forward: false },
+    DESCENT_LIMIT,
+  )
+  const nearest = [...sub.txns.values()].sort(
+    (a, b) => (sub.hops.get(a.hash) ?? 0) - (sub.hops.get(b.hash) ?? 0),
+  )
+  return {
+    withdrawals: nearest
+      .filter((t) => t.kind === TxKind.Burn)
+      .slice(0, DESCENT_SHOWN)
+      .map((t) => withdrawalOf(db, t)),
+    deposits: nearest
+      .filter((t) => t.kind === TxKind.Mint)
+      .flatMap((t) => depositOf(db, t) ?? [])
+      .slice(0, DESCENT_SHOWN),
   }
 }
 
@@ -246,6 +299,8 @@ function hopOf(
     time: txn.time,
     height: txn.height,
     kind,
+    inputs: inputsOf(db, txn.hash).length,
+    outputs: outputsOf(db, txn.hash).length,
   }
   if (txn.kind === TxKind.Burn) {
     hop.amount = txn.amount

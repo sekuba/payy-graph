@@ -10,6 +10,8 @@ export interface Flow {
   txns: Map<string, number>
   /** by mint tx hash */
   shares: Map<string, Share>
+  /** by group, for the groups of mints passed in (e.g. by sender) */
+  groups: Map<string, Share>
 }
 
 /**
@@ -39,6 +41,8 @@ export function flowInto(
   sub: Pick<Subgraph, 'txns' | 'notes' | 'truncated'>,
   bounds: Map<string, Bounds>,
   focus: string[],
+  /** a group for some mints, by mint tx hash; each group is bounded as one */
+  groupOf: (mint: string) => string | undefined = () => undefined,
 ): Flow {
   const inputs = new Map<string, string[]>()
   const outputs = new Map<string, string[]>()
@@ -118,25 +122,48 @@ export function flowInto(
   }
   const minted = (t: TxnRow) => (t.kind === TxKind.Mint ? t.amount : 0)
 
-  const shares = new Map<string, Share>()
-  for (const mint of order) {
-    if (mint.kind !== TxKind.Mint) continue
+  /** the share of the deposits `members` together */
+  const shareOf = (members: Set<string>): Share => {
+    const amount = order
+      .filter((t) => members.has(t.hash))
+      .reduce((a, t) => a + t.amount, 0)
     const max = sub.truncated
       ? undefined
       : Math.min(
           total,
+          // a split that rejoins can make the walk count a deposit twice
+          amount,
           upTo(
-            (t) => (t.hash === mint.hash ? mint.amount : 0),
+            (t) => (members.has(t.hash) ? t.amount : 0),
             () => 0,
           ),
         )
     // everything else: the other deposits and the notes from outside the view
-    const other = upTo((t) => (t.hash === mint.hash ? 0 : minted(t)), hi)
+    const other = upTo((t) => (members.has(t.hash) ? 0 : minted(t)), hi)
     const min = Math.max(0, total - other)
-    shares.set(mint.hash, {
-      min: max === undefined ? min : Math.min(min, max),
-      max,
-    })
+    return { min: max === undefined ? min : Math.min(min, max), max }
   }
-  return { notes, txns, shares }
+  const shares = new Map<string, Share>()
+  const members = new Map<string, Set<string>>()
+  for (const mint of order) {
+    if (mint.kind !== TxKind.Mint) continue
+    shares.set(mint.hash, shareOf(new Set([mint.hash])))
+    const group = groupOf(mint.hash)
+    if (group === undefined) continue
+    const set = members.get(group) ?? new Set()
+    set.add(mint.hash)
+    members.set(group, set)
+  }
+  const groups = new Map<string, Share>()
+  for (const [group, set] of members) {
+    // a group of one is that deposit
+    const [only] = set
+    groups.set(
+      group,
+      set.size === 1 && only
+        ? (shares.get(only) ?? shareOf(set))
+        : shareOf(set),
+    )
+  }
+  return { notes, txns, shares, groups }
 }
