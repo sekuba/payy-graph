@@ -164,7 +164,11 @@ export function App() {
           className="flex gap-3 whitespace-nowrap text-xs"
           style={{ color: 'var(--muted)' }}
         >
-          <a href="https://l2beat.com" target="_blank" rel="noreferrer">
+          <a
+            href="https://l2beat.com/privacy/projects/payy"
+            target="_blank"
+            rel="noreferrer"
+          >
             L2BEAT
           </a>
           <a
@@ -178,12 +182,12 @@ export function App() {
       </header>
 
       {offline && (
-        <div style={{ color: 'var(--withdrawal)' }}>
+        <div style={{ color: 'var(--negative)' }}>
           The indexer is offline right now. Try again in a few minutes.
         </div>
       )}
       {error && !offline && (
-        <div style={{ color: 'var(--withdrawal)' }}>{error}</div>
+        <div style={{ color: 'var(--negative)' }}>{error}</div>
       )}
       {!query && !offline && <Live onSelect={setQuery} />}
 

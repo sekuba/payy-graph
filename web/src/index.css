@@ -12,10 +12,13 @@
   --hairline: #e1e0d9;
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
-  --send: #2a78d6;
-  --withdrawal: #eb6834;
-  --deposit: #1baf7a;
-  --card: #8a5cd6;
+  /* accents from l2beat.com */
+  --send: #2a5bd8;
+  --withdrawal: #ef43b3;
+  --deposit: #1a9d4f;
+  --card: #7e41cc;
+  --brand: #9621bf;
+  --negative: #d70000;
   --wash: rgba(11, 11, 11, 0.04);
 }
 @media (prefers-color-scheme: dark) {
@@ -29,10 +32,12 @@
     --hairline: #2c2c2a;
     --axis: #383835;
     --border: rgba(255, 255, 255, 0.1);
-    --send: #3987e5;
-    --withdrawal: #d95926;
-    --deposit: #199e70;
-    --card: #9b72e0;
+    --send: #66b2ff;
+    --withdrawal: #ff46c0;
+    --deposit: #15ca60;
+    --card: #9576d1;
+    --brand: #db8bf7;
+    --negative: #ff5d5d;
     --wash: rgba(255, 255, 255, 0.06);
   }
 }
@@ -77,7 +82,7 @@ input.search {
   width: 100%;
 }
 input.search:focus {
-  outline: 2px solid var(--send);
+  outline: 2px solid var(--brand);
   outline-offset: 1px;
 }
 .row:hover {
@@ -161,6 +166,6 @@ th + th {
   cursor: help;
 }
 .chip-strong {
-  border-color: var(--withdrawal);
-  color: var(--withdrawal);
+  border-color: var(--brand);
+  color: var(--brand);
 }
