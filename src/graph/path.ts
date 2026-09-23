@@ -1,4 +1,5 @@
 import type { Db } from '../db'
+import { DUST } from '../format'
 import { labelOf, TxKind } from '../protocol'
 import type { Bounds } from './amounts'
 import {
@@ -36,11 +37,30 @@ const REJOIN_LIMIT = 12
  * the change, until the funds came from a deposit, were consolidated from two
  * separate histories, or arrived in the migration distribution. A note split
  * in two and merged back a few steps later is the same wallet's doing and is
- * walked through. Each transaction on the way released notes to someone
- * else; where those ended up is looked up forward, which lists the spends
- * associated with this history.
+ * walked through. So is a merge with a note that provably held less than a
+ * cent: the funds did not come from there, and the note is listed as merged
+ * in. Each transaction on the way released notes to someone else; where
+ * those ended up is looked up forward, which lists the spends associated
+ * with this history.
  */
 export function walkPath(db: Db, burn: TxnRow): Path {
+  // Amounts first, which tell dust from funds: the backward closure, plus
+  // side branches followed forward, so a payment withdrawn in full gets its
+  // value from that withdrawal, and the card batch of each card payment,
+  // which bounds it.
+  const closure = collect(
+    db,
+    [burn.hash],
+    { backward: true, forward: false },
+    DEFAULT_LIMIT,
+  )
+  const bounds = inferWithBatches(db, withSideBranches(db, closure))
+  const dust = (n: NoteRow) => {
+    const b = bounds.get(n.commitment)
+    const hi = b?.value ?? b?.max
+    return hi !== undefined && hi < DUST
+  }
+
   const steps: TxnRow[] = []
   const consumed = new Set<string>()
   let origin: PathOrigin = { type: 'limit' }
@@ -64,16 +84,20 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     }
     const inputs = inputsOf(db, txn.hash)
     if (inputs.length === 2) {
-      const rejoin = findRejoin(db, inputs)
-      if (!rejoin) {
+      const rejoin = findRejoin(db, inputs, dust)
+      if (rejoin) {
+        push(txn)
+        for (const t of rejoin.branches) push(t)
+        txn = rejoin.split
+        followed = undefined
+        continue
+      }
+      const funds = inputs.filter((n) => !dust(n))
+      if (funds.length !== 1) {
         origin = { type: 'merge', time: txn.time }
         break
       }
-      push(txn)
-      for (const t of rejoin.branches) push(t)
-      txn = rejoin.split
-      followed = undefined
-      continue
+      inputs.splice(0, 2, ...funds)
     }
     push(txn)
     if (txn.kind === TxKind.Mint && inputs.length === 0) {
@@ -91,20 +115,10 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     txn = getTxn(db, previous.created_tx)
   }
 
-  // Amounts: the backward closure, plus side branches followed forward, so
-  // a payment withdrawn in full gets its value from that withdrawal, and
-  // the card batch of each card payment, which bounds it.
-  const closure = collect(
-    db,
-    [burn.hash],
-    { backward: true, forward: false },
-    DEFAULT_LIMIT,
-  )
   const released = steps.map((t) => ({
     txn: t,
     notes: outputsOf(db, t.hash).filter((n) => !consumed.has(n.commitment)),
   }))
-  const bounds = inferWithBatches(db, withSideBranches(db, closure))
   // what the migrated note held follows from what the wallet did with it
   if (origin.type === 'migration' && followed) {
     const b = bounds.get(followed.commitment)
@@ -122,7 +136,32 @@ export function walkPath(db: Db, burn: TxnRow): Path {
       return d ? [{ ...d, share: shares.get(t.hash) }] : []
     })
     .sort(bySize)
-  return { withdrawal: withdrawalOf(db, burn), hops, origin, sources }
+  // notes from outside the walked history, merged in on the way
+  // (not the note the walk arrived by where it stopped: a merge, the
+  // migration or the limit)
+  const walked = new Set(steps.map((t) => t.hash))
+  const stoppedAt = txn && !walked.has(txn.hash) ? txn.hash : undefined
+  const merged = steps.flatMap((t) =>
+    inputsOf(db, t.hash)
+      .filter(
+        (n) =>
+          n.created_tx &&
+          !walked.has(n.created_tx) &&
+          n.created_tx !== stoppedAt,
+      )
+      .map((n) => ({
+        txHash: t.hash,
+        time: t.time,
+        ...(bounds.get(n.commitment) ?? { min: 0 }),
+      })),
+  )
+  return {
+    withdrawal: withdrawalOf(db, burn),
+    hops,
+    origin,
+    sources,
+    merged,
+  }
 }
 
 /**
@@ -157,10 +196,11 @@ function markRecurring(hops: PathHop[]): void {
 function findRejoin(
   db: Db,
   [a, b]: NoteRow[],
+  dust: (n: NoteRow) => boolean,
 ): { split: TxnRow; branches: TxnRow[] } | undefined {
   if (!a || !b) return undefined
-  const chainA = chainBack(db, a)
-  const chainB = chainBack(db, b)
+  const chainA = chainBack(db, a, dust)
+  const chainB = chainBack(db, b, dust)
   for (const [i, split] of chainA.entries()) {
     const j = chainB.findIndex((t) => t.hash === split.hash)
     if (j >= 0) {
@@ -170,14 +210,19 @@ function findRejoin(
   return undefined
 }
 
-function chainBack(db: Db, note: NoteRow): TxnRow[] {
+/** Back along single-input transactions, and merges with dust */
+function chainBack(
+  db: Db,
+  note: NoteRow,
+  dust: (n: NoteRow) => boolean,
+): TxnRow[] {
   const chain: TxnRow[] = []
   let hash = note.created_tx
   while (hash && chain.length < REJOIN_LIMIT) {
     const t = getTxn(db, hash)
     if (!t) break
     chain.push(t)
-    const ins = inputsOf(db, t.hash)
+    const ins = inputsOf(db, t.hash).filter((n) => !dust(n))
     if (ins.length !== 1) break
     hash = ins[0]?.created_tx ?? null
   }

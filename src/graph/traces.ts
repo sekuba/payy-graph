@@ -20,6 +20,13 @@ import type { Trace } from './types'
 
 const NEW_KEY = 'traces_height'
 const BACKFILL_KEY = 'traces_backfill_height'
+const VERSION_KEY = 'traces_version'
+/**
+ * Bumped when the walk changes what it finds. 2: merges with a note of less
+ * than a cent are walked through, so histories that began with such a merge
+ * (or ran into the limit) are traced again.
+ */
+const VERSION = 2
 
 interface TraceRow {
   burn_tx: string
@@ -105,6 +112,14 @@ export function deriveTraces(db: Db, budgetMs: number): void {
   const started = Date.now()
   const top =
     one<{ h: number | null }>(db, 'select max(height) as h from txn')?.h ?? 0
+  if (Number(getSync(db, VERSION_KEY) ?? 1) < VERSION) {
+    transaction(db, () => {
+      db.exec(`delete from trace where origin in ('merge', 'limit')`)
+      setSync(db, BACKFILL_KEY, String(top))
+      setSync(db, VERSION_KEY, String(VERSION))
+    })
+    log('traces', { version: VERSION, retracing: 'merge and limit' })
+  }
   const done = Number(getSync(db, NEW_KEY) ?? top)
   const backfill = Number(getSync(db, BACKFILL_KEY) ?? done)
   const placeholders = CARD_SETTLEMENT.map(() => '?').join(', ')

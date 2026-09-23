@@ -59,12 +59,17 @@ describe(flowInto.name, () => {
     expect(g.notes.find((n) => n.commitment === 'p')?.reach).toEqual(0)
   })
 
-  it('names the sources of a history that begins with a merge', () => {
+  it('walks past the dust to the deposit that funded the withdrawal', () => {
     const db = history()
     const burn = getTxn(db, 'burn')
     if (!burn) throw new Error('missing burn')
     const path = walkPath(db, burn)
-    expect(path.origin.type).toEqual('merge')
+    // the merge with 0.007 is walked through, the split of mint2 rejoined
+    expect(path.origin.type).toEqual('deposit')
+    expect(path.hops[0]?.txHash).toEqual('mint2')
+    expect(path.merged).toEqual([
+      { txHash: 'merge', time: 10, value: 7_000, min: 7_000, max: 7_000 },
+    ])
     expect(path.sources.map((d) => [d.txHash, d.share])).toEqual([
       ['mint2', { min: 2_873_000, max: 2_880_000 }],
       ['mint1', { min: 0, max: 7_000 }],
@@ -86,12 +91,23 @@ describe(flowInto.name, () => {
     for (const d of g.deposits) expect(d.share?.max).toEqual(undefined)
   })
 
-  it('leaves views that are not backward from withdrawals alone', () => {
-    const g = graphAround(history(), ['burn'], {
+  it('shares the part behind a withdrawal of a view both ways', () => {
+    const both = graphAround(history(), ['burn'], {
       backward: true,
       forward: true,
     })
-    expect(g.deposits.every((d) => d.share === undefined)).toEqual(true)
-    expect(g.notes.every((n) => n.reach === undefined)).toEqual(true)
+    expect(both.deposits.find((d) => d.txHash === 'mint1')?.share).toEqual({
+      min: 0,
+      max: 7_000,
+    })
+    // its change is ahead of it, not behind
+    expect(both.notes.find((n) => n.commitment === 'change')?.reach).toEqual(
+      undefined,
+    )
+    const forward = graphAround(history(), ['burn'], {
+      backward: false,
+      forward: true,
+    })
+    expect(forward.notes.every((n) => n.reach === undefined)).toEqual(true)
   })
 })

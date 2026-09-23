@@ -234,11 +234,16 @@ export function graphAround(
 ): Graph {
   const sub = collect(db, txHashes, direction, limit)
   const bounds = inferWithBatches(db, withSideBranches(db, sub))
+  // how much of each part can be in the withdrawals, over the part of the
+  // graph behind them (the forward part of a view both ways has no share)
   const burns = txHashes.filter((h) => sub.txns.get(h)?.kind === TxKind.Burn)
-  const flow =
-    !direction.forward && burns.length > 0 && burns.length === txHashes.length
-      ? flowInto(sub, bounds, burns)
+  const behind =
+    direction.backward && burns.length > 0 && burns.length === txHashes.length
+      ? direction.forward
+        ? collect(db, txHashes, { backward: true, forward: false }, limit)
+        : sub
       : undefined
+  const flow = behind && flowInto(behind, bounds, burns)
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
   for (const t of sub.txns.values()) {
@@ -286,7 +291,12 @@ export function graphAround(
         }),
         ...(sink?.role === Role.Card && { batch: sink.batch }),
         ...(bounds.get(n.commitment) ?? { min: 0 }),
-        ...(flow && { reach: flow.notes.get(n.commitment) ?? 0 }),
+        // behind the withdrawals, not their own change ahead of them
+        ...(flow &&
+          behind?.notes.has(n.commitment) &&
+          !burns.includes(n.created_tx ?? '') && {
+            reach: flow.notes.get(n.commitment) ?? 0,
+          }),
       }
     }),
     deposits: deposits.sort((a, b) =>

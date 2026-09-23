@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Deposit, Destination, Path, PathHop } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { BridgeText } from './Bridge'
+import { BridgeText, originName } from './Bridge'
 import {
   between,
   DUST,
@@ -58,6 +58,7 @@ export function PathPanel({ path }: { path: Path }) {
       <Flow path={path} />
       <p className="my-3 text-sm" style={{ color: 'var(--ink-2)' }}>
         <Origin path={path} />
+        <Merged path={path} />
       </p>
       <table className="stack w-full text-left text-xs">
         <thead style={{ color: 'var(--muted)' }}>
@@ -74,6 +75,7 @@ export function PathPanel({ path }: { path: Path }) {
             <Row
               key={hop.txHash}
               hop={hop}
+              merged={path.merged.find((m) => m.txHash === hop.txHash)}
               gap={
                 hidden > 0 && i === INITIAL_ROWS / 2 ? (
                   <button
@@ -93,7 +95,16 @@ export function PathPanel({ path }: { path: Path }) {
   )
 }
 
-function Row({ hop, gap }: { hop: PathHop; gap?: React.ReactNode }) {
+function Row({
+  hop,
+  merged,
+  gap,
+}: {
+  hop: PathHop
+  /** a note from another history merged in here */
+  merged?: Path['merged'][number]
+  gap?: React.ReactNode
+}) {
   return (
     <>
       {gap && (
@@ -110,14 +121,22 @@ function Row({ hop, gap }: { hop: PathHop; gap?: React.ReactNode }) {
             className="dot"
             style={{ background: `var(--${colorOf(hop)})` }}
           />
-          {eventOf(hop)}
+          {merged && !hop.out ? 'Merge' : eventOf(hop)}
           {hop.recurring && <span className="chip ml-1">monthly</span>}
         </td>
         <td className="wide py-1 pr-2">
-          <Counterparty hop={hop} />
+          {merged && !hop.out ? (
+            <span style={{ color: 'var(--muted)' }}>
+              a note from another history, under a cent
+            </span>
+          ) : (
+            <Counterparty hop={hop} />
+          )}
         </td>
         <td className="mono whitespace-nowrap py-1 text-right">
-          {amountOf(hop)}
+          {merged && !hop.out
+            ? between(merged.value ?? merged.min, merged.value ?? merged.max)
+            : amountOf(hop)}
         </td>
         <td className="mono py-1 pl-2" data-label="Payy">
           <a href={payyTxUrl(hop.txHash)} target="_blank" rel="noreferrer">
@@ -169,12 +188,32 @@ function Flow({ path }: { path: Path }) {
       hops: [{ time: o.time }],
     })
   }
-  if (o.type === 'merge') {
-    ins.push({
-      key: 'merge',
-      what: 'Notes from another history',
-      hops: [{ time: o.time }],
-    })
+  if (o.type === 'merge' || o.type === 'limit') {
+    // what can be shown of where the merged histories came from
+    const { named, rest, bounded, others } = splitSources(path)
+    for (const d of named) {
+      ins.push({
+        key: d.mintHash,
+        what: 'From a deposit',
+        amount: between(d.share?.min ?? 0, d.share?.max),
+        note: `of ${usdc(d.amount)} deposited${d.bridge ? ` from ${originName(d.bridge.chain)}` : ''}`,
+        hops: [{ time: d.time }],
+      })
+    }
+    if (o.type === 'merge') {
+      ins.push({
+        key: 'merge',
+        what:
+          named.length > 0
+            ? 'From other histories'
+            : 'Notes from another history',
+        amount:
+          named.length > 0 && rest.length > 0 && bounded
+            ? `≤ ${usdc(others)}`
+            : undefined,
+        hops: [{ time: o.time }],
+      })
+    }
   }
   if (deposits.length > 0) {
     ins.push({
@@ -182,6 +221,23 @@ function Flow({ path }: { path: Path }) {
       what: count(deposits.length, 'deposit'),
       amount: usdc(sum(deposits)),
       hops: deposits,
+    })
+  }
+  if (path.merged.length > 0) {
+    const lo = path.merged.reduce((a, n) => a + (n.value ?? n.min), 0)
+    const hi = path.merged.reduce((a, n) => a + (n.value ?? n.max ?? 0), 0)
+    ins.push({
+      key: 'merged',
+      what:
+        path.merged.length === 1
+          ? 'A note from another history'
+          : `${path.merged.length} notes from other histories`,
+      amount: between(lo, hi),
+      note:
+        path.merged.length === 1
+          ? 'merged in, under a cent'
+          : 'merged in, each under a cent',
+      hops: path.merged,
     })
   }
   const outs: Item[] = []
@@ -279,6 +335,24 @@ function FlowRows({
   })
 }
 
+/** The dust merged in on the way, which the walk went past */
+function Merged({ path }: { path: Path }) {
+  const m = path.merged
+  if (m.length === 0) return null
+  const [first] = m
+  const one = m.length === 1 && first
+  return (
+    <span>
+      {' '}
+      {one
+        ? `A note of ${between(first.value ?? first.min, first.value ?? first.max)} USDC from another history was merged in on ${date(first.time)}`
+        : `${m.length} notes from other histories were merged in, each under a cent`}
+      ; less than a cent of the withdrawal can have come from{' '}
+      {one ? 'it' : 'each'}.
+    </span>
+  )
+}
+
 function Origin({ path }: { path: Path }) {
   const o = path.origin
   const first = path.hops[0]
@@ -344,11 +418,11 @@ function Origin({ path }: { path: Path }) {
 }
 
 /**
- * Which deposits the withdrawal can be shown to come from: those that must
- * have supplied at least a cent of it, and a bound on all the others
+ * The deposits that must have supplied at least a cent of the withdrawal
+ * (the first few), the rest, and a bound on what the rest supplied together
+ * when every one of them is bounded
  */
-function Sources({ path }: { path: Path }) {
-  const w = path.withdrawal
+function splitSources(path: Path) {
   const named = path.sources
     .filter((d) => (d.share?.min ?? 0) >= DUST)
     .slice(0, NAMED_SOURCES)
@@ -356,9 +430,19 @@ function Sources({ path }: { path: Path }) {
   const covered = named.reduce((a, d) => a + (d.share?.min ?? 0), 0)
   const bounded = rest.every((d) => d.share?.max !== undefined)
   const others = Math.min(
-    w.amount - covered,
+    path.withdrawal.amount - covered,
     rest.reduce((a, d) => a + (d.share?.max ?? 0), 0),
   )
+  return { named, rest, bounded, others }
+}
+
+/**
+ * Which deposits the withdrawal can be shown to come from: those that must
+ * have supplied at least a cent of it, and a bound on all the others
+ */
+function Sources({ path }: { path: Path }) {
+  const w = path.withdrawal
+  const { named, rest, bounded, others } = splitSources(path)
   const count = (n: number) => `${n} ${n === 1 ? 'deposit' : 'deposits'}`
   return (
     <>

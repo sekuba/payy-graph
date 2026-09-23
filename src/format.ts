@@ -13,3 +13,9 @@ export function usdc(amount: number): string {
 export function date(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(0, 16).replace('T', ' ')
 }
+
+/**
+ * Less than one cent: what cannot be sent or withdrawn on Payy, whose
+ * withdrawals are whole cents (47,437 of 47,440 outside card batches)
+ */
+export const DUST = 10_000

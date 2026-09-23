@@ -204,6 +204,17 @@ export interface Path {
   origin: PathOrigin
   /** the deposits in its history with their share of it, largest first */
   sources: Deposit[]
+  /**
+   * notes from other histories merged in along the way; each held less than
+   * a cent, else the walk would have stopped there
+   */
+  merged: {
+    txHash: string
+    time: number
+    value?: number
+    min: number
+    max?: number
+  }[]
 }
 
 export interface Graph {
