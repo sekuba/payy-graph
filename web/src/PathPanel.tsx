@@ -47,7 +47,7 @@ export function PathPanel({ path }: { path: Path }) {
       <p className="my-3 text-sm" style={{ color: 'var(--ink-2)' }}>
         <Origin path={path} />
       </p>
-      <table className="w-full text-left text-xs">
+      <table className="stack w-full text-left text-xs">
         <thead style={{ color: 'var(--muted)' }}>
           <tr>
             <th className="py-1 font-normal">Time</th>
@@ -101,13 +101,13 @@ function Row({ hop, gap }: { hop: PathHop; gap?: React.ReactNode }) {
           {eventOf(hop)}
           {hop.recurring && <span className="chip ml-1">monthly</span>}
         </td>
-        <td className="py-1 pr-2">
+        <td className="wide py-1 pr-2">
           <Counterparty hop={hop} />
         </td>
         <td className="mono whitespace-nowrap py-1 text-right">
           {amountOf(hop)}
         </td>
-        <td className="mono py-1 pl-2">
+        <td className="mono py-1 pl-2" data-label="Payy">
           <a href={payyTxUrl(hop.txHash)} target="_blank" rel="noreferrer">
             {shortHex(hop.txHash, 4)}
           </a>
@@ -209,7 +209,7 @@ function Flow({ path }: { path: Path }) {
     })
   }
   return (
-    <table className="flow text-sm">
+    <table className="flow stack text-sm">
       <tbody>
         <FlowRows label="in" color="var(--deposit)" items={ins} />
         <FlowRows label="out" color="var(--withdrawal)" items={outs} />

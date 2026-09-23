@@ -91,16 +91,50 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
       }
     })
   }
+  // One pointer pans; two (a pinch on a touch screen) zoom around their
+  // midpoint. Pointers are tracked by id so that both work together.
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ distance: number } | undefined>(undefined)
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    drag.current = { x: e.clientX - view.x, y: e.clientY - view.y }
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pointers.current.size === 1) {
+      drag.current = { x: e.clientX - view.x, y: e.clientY - view.y }
+    } else {
+      drag.current = undefined
+      pinch.current = { distance: spread(pointers.current) }
+    }
   }
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!pointers.current.has(e.pointerId)) return
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pinch.current && pointers.current.size === 2) {
+      const distance = spread(pointers.current)
+      const ratio = distance / (pinch.current.distance || distance)
+      pinch.current.distance = distance
+      const rect = e.currentTarget.getBoundingClientRect()
+      const [a, b] = [...pointers.current.values()]
+      if (!a || !b) return
+      const px = (a.x + b.x) / 2 - rect.left
+      const py = (a.y + b.y) / 2 - rect.top
+      setView((v) => {
+        const k = Math.min(4, Math.max(0.2, v.k * ratio))
+        return {
+          k,
+          x: px - ((px - v.x) * k) / v.k,
+          y: py - ((py - v.y) * k) / v.k,
+        }
+      })
+      return
+    }
     if (!drag.current || e.buttons === 0) return
     const d = drag.current
     setView((v) => ({ ...v, x: e.clientX - d.x, y: e.clientY - d.y }))
   }
-  const onPointerUp = () => {
-    drag.current = undefined
+  const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    pointers.current.delete(e.pointerId)
+    pinch.current = undefined
+    const [rest] = [...pointers.current.values()]
+    drag.current = rest && { x: rest.x - view.x, y: rest.y - view.y }
   }
 
   const activate = (node: PlacedNode) => {
@@ -120,7 +154,9 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onPointerLeave={() => setHover(undefined)}
+        style={{ touchAction: 'none' }}
         role="img"
         aria-label="Spend graph"
       >
@@ -150,6 +186,12 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
       {hover && <Tooltip hover={hover} graph={graph} />}
     </div>
   )
+}
+
+/** Distance between the first two pointers */
+function spread(points: Map<number, { x: number; y: number }>): number {
+  const [a, b] = [...points.values()]
+  return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0
 }
 
 function average(xs: number[]): number | undefined {
@@ -322,7 +364,7 @@ function Legend({
 }) {
   return (
     <div
-      className="absolute top-3 right-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs"
+      className="absolute right-3 bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:top-3 sm:bottom-auto sm:left-auto sm:justify-end"
       style={{ color: 'var(--ink-2)' }}
     >
       {[...Object.values(KIND), VIRTUAL.card].map((k) => (
@@ -361,7 +403,12 @@ function Legend({
 }
 
 function Tooltip({ hover, graph }: { hover: Hover; graph: Graph }) {
-  const style = { left: hover.x + 12, top: hover.y + 12 }
+  // kept on screen on narrow viewports
+  const style = {
+    left: Math.max(4, Math.min(hover.x + 12, window.innerWidth - 280)),
+    top: hover.y + 12,
+    maxWidth: 'calc(100vw - 8px)',
+  }
   if (hover.kind === 'node' && hover.node.virtual === 'migration') {
     const m = graph.migration
     return (

@@ -141,11 +141,11 @@ export function App() {
     })
 
   return (
-    <div className="flex h-full flex-col gap-3 p-3">
-      <header className="flex items-center gap-3">
+    <div className="flex h-full flex-col gap-3 p-2 sm:p-3">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="whitespace-nowrap font-semibold">Payy spend graph</h1>
         <form
-          className="flex-1"
+          className="order-last w-full sm:order-none sm:w-auto sm:flex-1"
           onSubmit={(e) => {
             e.preventDefault()
             setQuery(input.trim())
@@ -160,6 +160,7 @@ export function App() {
           />
         </form>
         {status && query && <SyncStatus status={status} />}
+        <span className="flex-1 sm:hidden" />
         <nav
           className="flex gap-3 whitespace-nowrap text-xs"
           style={{ color: 'var(--muted)' }}
@@ -200,7 +201,7 @@ export function App() {
       {summary && (
         <section className="card p-3">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
-            <span className="mono">{summary.address}</span>
+            <span className="mono break-all">{summary.address}</span>
             <Address address={summary.address} quiet />
             <span className="text-xs" style={{ color: 'var(--muted)' }}>
               {plural(summary.withdrawals.length, 'withdrawal')} ·{' '}
@@ -277,7 +278,7 @@ function plural(n: number, word: string): string {
 function SyncStatus({ status }: { status: Status }) {
   return (
     <div
-      className="whitespace-nowrap text-xs"
+      className="hidden whitespace-nowrap text-xs sm:block"
       style={{ color: 'var(--muted)' }}
     >
       {status.txns.toLocaleString('en-US')} txns · height{' '}

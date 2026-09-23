@@ -77,7 +77,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
     <>
       {stats && <Stats stats={stats} now={now} />}
       <section className="card p-3">
-        <div className="mb-2 flex gap-1 text-xs">
+        <div className="mb-2 flex flex-wrap gap-1 text-xs">
           {TABS.map(([id, text, title]) => (
             <button
               key={id}
@@ -126,7 +126,7 @@ function NamedTable({ onSelect }: { onSelect: (query: string) => void }) {
   const day = (t: number) => date(t).slice(0, 10)
   return (
     <>
-      <div className="mb-2 flex items-baseline gap-1 text-xs">
+      <div className="mb-2 flex flex-wrap items-baseline gap-1 text-xs">
         {(
           [
             ['all', 'all'],
@@ -147,14 +147,14 @@ function NamedTable({ onSelect }: { onSelect: (query: string) => void }) {
           {shown.length.toLocaleString('en-US')} addresses
         </span>
       </div>
-      <table className="w-full text-left text-xs">
+      <table className="stack w-full text-left text-xs">
         <thead style={{ color: 'var(--muted)' }}>
           <tr>
             <th className="py-1 font-normal">Address</th>
             <th className="py-1 font-normal">Name</th>
             <th className="py-1 text-right font-normal">Deposits</th>
             <th className="py-1 text-right font-normal">Withdrawals</th>
-            <th className="py-1 font-normal">Active</th>
+            <th className="py-1 font-normal">Last active</th>
           </tr>
         </thead>
         <tbody>
@@ -170,16 +170,30 @@ function NamedTable({ onSelect }: { onSelect: (query: string) => void }) {
               <td className="name py-1">
                 {[r.ens, r.gns].filter(Boolean).join(' · ')}
               </td>
-              <td className="mono whitespace-nowrap py-1 text-right">
+              <td
+                className="mono whitespace-nowrap py-1 text-right"
+                data-label="deposits"
+              >
                 {totals(r.deposits)}
               </td>
-              <td className="mono whitespace-nowrap py-1 text-right">
+              <td
+                className="mono whitespace-nowrap py-1 text-right"
+                data-label="withdrawals"
+              >
                 {totals(r.withdrawals)}
               </td>
-              <td className="mono whitespace-nowrap py-1">
-                {day(r.first) === day(r.last)
-                  ? day(r.first)
-                  : `${day(r.first)} – ${day(r.last)}`}
+              <td
+                className="mono whitespace-nowrap py-1"
+                data-label="last"
+                title={`active ${day(r.first)} – ${day(r.last)}`}
+              >
+                {day(r.last)}
+                {day(r.first) !== day(r.last) && (
+                  <span style={{ color: 'var(--muted)' }}>
+                    {' '}
+                    · since {day(r.first)}
+                  </span>
+                )}
               </td>
             </tr>
           ))}
@@ -363,7 +377,7 @@ function Feed({
     return <div style={{ color: 'var(--muted)' }}>–</div>
   }
   return (
-    <table className="w-full text-left text-xs">
+    <table className="stack w-full text-left text-xs">
       <tbody>
         {events.map((e) => (
           <Row key={keyOf(e)} event={e} now={now} onSelect={onSelect} />
@@ -411,7 +425,7 @@ function Row({
             </span>
           )}
         </td>
-        <td className="py-1">
+        <td className="wide py-1">
           {e.match && !sameDeposit(e) && (
             <AmountMatchText match={e.match} time={e.withdrawal.time} />
           )}

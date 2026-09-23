@@ -30,7 +30,17 @@ export function Address({
   const label = labelOf(address)
   const name = noName ? undefined : nameOf(names, address)
   if (quiet && !label && !name) return null
-  const text = label ?? name ?? (full ? address : shortHex(address, 6))
+  const text =
+    label ??
+    name ??
+    (full ? (
+      <>
+        <span className="hidden sm:inline">{address}</span>
+        <span className="sm:hidden">{shortHex(address, 6)}</span>
+      </>
+    ) : (
+      shortHex(address, 6)
+    ))
   const title = [address, label && `label: ${labelSource(address)}`, name]
     .filter(Boolean)
     .join('\n')

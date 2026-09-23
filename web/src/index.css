@@ -102,6 +102,7 @@ input.search:focus {
   font-size: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 10;
+  max-width: 320px;
 }
 .chip {
   border: 1px solid var(--axis);
@@ -168,4 +169,36 @@ th + th {
 .chip-strong {
   border-color: var(--brand);
   color: var(--brand);
+}
+/* Phones: table rows become wrapped lines, headers move into data-label */
+@media (max-width: 639px) {
+  table.stack,
+  table.stack tbody {
+    display: block;
+  }
+  table.stack thead {
+    display: none;
+  }
+  table.stack tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 10px;
+    row-gap: 2px;
+    padding: 5px 0;
+  }
+  table.stack td {
+    padding: 0;
+    text-align: left;
+  }
+  table.stack td.wide {
+    flex-basis: 100%;
+  }
+  table.stack td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--muted);
+  }
+  table.stack td:empty {
+    display: none;
+  }
 }
