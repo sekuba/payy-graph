@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Roles from the dataviz reference palette; dark values are their own steps */
 :root {
   color-scheme: light;
   --page: #f9f9f7;

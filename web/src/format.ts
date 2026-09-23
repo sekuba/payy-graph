@@ -1,6 +1,9 @@
-import type { ChainId } from '../../src/graph/types'
-
-export const USDC_DECIMALS = 6
+import {
+  CHAINS,
+  type ChainId,
+  PAYY_EXPLORER_URL,
+  USDC_DECIMALS,
+} from '../../src/protocol'
 
 export function usdc(amount: number): string {
   const [whole = '0', fraction = ''] = (amount / 10 ** USDC_DECIMALS)
@@ -19,24 +22,14 @@ export function date(unix: number): string {
   return new Date(unix * 1000).toISOString().slice(0, 16).replace('T', ' ')
 }
 
-const EXPLORERS: Record<ChainId, string> = {
-  ethereum: 'https://etherscan.io',
-  polygon: 'https://polygonscan.com',
-}
-
 export function l1TxUrl(chain: ChainId, tx: string): string {
-  return `${EXPLORERS[chain]}/tx/${tx}`
+  return `${CHAINS[chain].explorer}/tx/${tx}`
 }
 
 export function l1AddressUrl(chain: ChainId, address: string): string {
-  return `${EXPLORERS[chain]}/address/${address}`
+  return `${CHAINS[chain].explorer}/address/${address}`
 }
 
 export function payyTxUrl(hash: string): string {
-  return `https://payy.network/explorer/transactions/${hash}`
-}
-
-export const CHAIN_NAME: Record<ChainId, string> = {
-  ethereum: 'Ethereum',
-  polygon: 'Polygon',
+  return `${PAYY_EXPLORER_URL}/transactions/${hash}`
 }

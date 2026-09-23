@@ -1,11 +1,10 @@
 import { expect } from 'earl'
 import { openDb } from '../db'
 import { insertTxns, parseTxn } from '../payy/indexer'
+import { NOTE_KIND_USDC, ZERO_COMMITMENT as ZERO } from '../protocol'
 import { getTxn } from './closure'
 import { walkPath } from './path'
 
-const ZERO = '0'.repeat(64)
-const KIND = '000200000000000000893c499c542cef5e3811e1192ce70d8cc03d5c33590000'
 const word = (n: number) => n.toString(16).padStart(64, '0')
 const addr = (n: number) =>
   `${'0'.repeat(24)}${n.toString(16).padStart(40, '0')}`
@@ -29,7 +28,7 @@ function txn(
       output_commitments: [outputs[0] ?? ZERO, outputs[1] ?? ZERO],
       messages: [
         word(kind),
-        kind === 1 ? ZERO : KIND,
+        kind === 1 ? ZERO : NOTE_KIND_USDC,
         word(amount),
         kind === 2 ? 'mh' : (inputs[0] ?? ZERO),
         extra,

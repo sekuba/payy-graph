@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { AddressSummary, Graph, Path, Status } from '../../src/graph/types'
-import { api, type Direction, type Resolved } from './api'
+import type {
+  AddressSummary,
+  Graph,
+  Path,
+  Resolved,
+  Status,
+} from '../../src/graph/types'
+import { api, type Direction } from './api'
 import { GraphView } from './GraphView'
 import { PathPanel } from './PathPanel'
 import { DepositTable, WithdrawalTable } from './Tables'

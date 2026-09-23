@@ -1,11 +1,12 @@
 import { all, type Db, getSync, one } from '../db'
 import { type ChainId, labelOf, TxKind } from '../protocol'
 import { inferAmounts } from './amounts'
-import { collect, getNote, getTxn, type Subgraph, type TxnRow } from './closure'
+import { collect, getNote, getTxn, type TxnRow } from './closure'
 import type {
   AddressSummary,
   Deposit,
   Graph,
+  Resolved,
   Status,
   Withdrawal,
 } from './types'
@@ -23,10 +24,7 @@ interface DepositRow {
 }
 
 interface BurnedRow {
-  chain: ChainId
   tx: string
-  time: number
-  recipient: string
   substitute: number
 }
 
@@ -100,7 +98,17 @@ export function withdrawalOf(db: Db, burn: TxnRow): Withdrawal {
   }
 }
 
-function toGraph(db: Db, sub: Subgraph): Graph {
+/**
+ * The graph around one or more transactions. Backward reaches the deposits
+ * that funded them, forward the withdrawals they funded.
+ */
+export function graphAround(
+  db: Db,
+  txHashes: string[],
+  direction: { backward: boolean; forward: boolean },
+  limit = DEFAULT_LIMIT,
+): Graph {
+  const sub = collect(db, txHashes, direction, limit)
   const bounds = inferAmounts(sub)
   const deposits: Deposit[] = []
   const withdrawals: Withdrawal[] = []
@@ -114,6 +122,9 @@ function toGraph(db: Db, sub: Subgraph): Graph {
       withdrawals.push({ ...withdrawalOf(db, t), hops })
     }
   }
+  // nearest first: the deposits few hops away are the ones that matter
+  const nearestFirst = (a: { hops?: number; time: number }, b: typeof a) =>
+    (a.hops ?? 0) - (b.hops ?? 0) || a.time - b.time
   return {
     txns: [...sub.txns.values()]
       .sort((a, b) => a.height - b.height || a.idx - b.idx)
@@ -124,38 +135,17 @@ function toGraph(db: Db, sub: Subgraph): Graph {
         kind: t.kind,
         amount: t.amount,
       })),
-    notes: [...sub.notes.values()].map((n) => {
-      const b = bounds.get(n.commitment) ?? { min: 0 }
-      return {
-        commitment: n.commitment,
-        from: n.created_tx ?? undefined,
-        to: n.spent_tx ?? undefined,
-        continues: n.spent_tx !== null && !sub.txns.has(n.spent_tx),
-        ...b,
-      }
-    }),
-    // nearest first: the deposits few hops away are the ones that matter
-    deposits: deposits.sort(
-      (a, b) => (a.hops ?? 0) - (b.hops ?? 0) || a.time - b.time,
-    ),
-    withdrawals: withdrawals.sort(
-      (a, b) => (a.hops ?? 0) - (b.hops ?? 0) || a.time - b.time,
-    ),
+    notes: [...sub.notes.values()].map((n) => ({
+      commitment: n.commitment,
+      from: n.created_tx ?? undefined,
+      to: n.spent_tx ?? undefined,
+      continues: n.spent_tx !== null && !sub.txns.has(n.spent_tx),
+      ...(bounds.get(n.commitment) ?? { min: 0 }),
+    })),
+    deposits: deposits.sort(nearestFirst),
+    withdrawals: withdrawals.sort(nearestFirst),
     truncated: sub.truncated,
   }
-}
-
-/**
- * The graph around one or more transactions. Backward reaches the deposits
- * that funded them, forward the withdrawals they funded.
- */
-export function graphAround(
-  db: Db,
-  txHashes: string[],
-  direction: { backward: boolean; forward: boolean },
-  limit = DEFAULT_LIMIT,
-): Graph {
-  return toGraph(db, collect(db, txHashes, direction, limit))
 }
 
 /** Withdrawals to and deposits from an L1 address */
@@ -180,12 +170,6 @@ export function addressSummary(db: Db, address: string): AddressSummary {
     deposits: mints.flatMap((m) => depositOf(db, m) ?? []),
   }
 }
-
-export type Resolved =
-  | { type: 'address'; address: string }
-  | { type: 'txn'; hash: string }
-  | { type: 'note'; commitment: string; createdTx?: string; spentTx?: string }
-  | { type: 'unknown' }
 
 /** Figures out what a user typed: an L1 address, a Payy tx hash or a commitment */
 export function resolve(db: Db, input: string): Resolved {

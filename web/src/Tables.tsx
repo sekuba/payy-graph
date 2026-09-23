@@ -1,6 +1,6 @@
 import type { Deposit, Withdrawal } from '../../src/graph/types'
+import { CHAINS } from '../../src/protocol'
 import {
-  CHAIN_NAME,
   date,
   l1AddressUrl,
   l1TxUrl,
@@ -42,7 +42,7 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
             {showHops && (
               <td className="mono py-1 text-right">{d.hops ?? ''}</td>
             )}
-            <td className="py-1">{CHAIN_NAME[d.chain]}</td>
+            <td className="py-1">{CHAINS[d.chain].name}</td>
             <td className="mono py-1">{date(d.time)}</td>
             <td className="mono py-1">
               <a
@@ -117,7 +117,7 @@ export function WithdrawalTable({
             </td>
             <td className="mono py-1 text-right">{usdc(w.amount)}</td>
             <td className="py-1">
-              {w.chain ? CHAIN_NAME[w.chain] : 'pending'}
+              {w.chain ? CHAINS[w.chain].name : 'pending'}
             </td>
             <td className="mono py-1">{date(w.time)}</td>
             <td className="mono py-1">

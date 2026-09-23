@@ -1,5 +1,4 @@
 {
   "spec": "{src,web}/**/*.test.ts",
-  "node-option": ["import=tsx", "no-warnings=ExperimentalWarning"],
-  "extension": "ts"
+  "node-option": ["import=tsx", "no-warnings=ExperimentalWarning"]
 }

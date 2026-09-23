@@ -1,13 +1,12 @@
 /** Shared between the API and the web UI. Amounts are in micro USDC. */
 
-export type ChainId = 'ethereum' | 'polygon'
+import type { ChainId, TxKind } from '../protocol'
 
 export interface TxnNode {
   hash: string
   height: number
   time: number
-  /** 1 send, 2 mint, 3 burn */
-  kind: 1 | 2 | 3
+  kind: TxKind
   /** minted or burned amount */
   amount: number
 }
@@ -136,6 +135,12 @@ export interface AddressSummary {
   withdrawals: Withdrawal[]
   deposits: Deposit[]
 }
+
+export type Resolved =
+  | { type: 'address'; address: string }
+  | { type: 'txn'; hash: string }
+  | { type: 'note'; commitment: string; createdTx?: string; spentTx?: string }
+  | { type: 'unknown' }
 
 export interface Status {
   payyHeight?: number

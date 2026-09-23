@@ -23,7 +23,6 @@ const USAGE = `payy-graph <command>
 
 async function main(argv: string[]): Promise<void> {
   const [command, ...rest] = argv
-  const flags = new Set(rest.filter((a) => a.startsWith('--')))
   const args = rest.filter((a) => !a.startsWith('--'))
   const option = (name: string) => {
     const i = rest.indexOf(`--${name}`)
@@ -35,7 +34,7 @@ async function main(argv: string[]): Promise<void> {
 
   switch (command) {
     case 'sync': {
-      const follow = flags.has('--follow')
+      const follow = rest.includes('--follow')
       const only = option('only')
       const jobs: Promise<void>[] = []
       if (only !== 'l1') {
@@ -62,7 +61,7 @@ async function main(argv: string[]): Promise<void> {
       break
     }
     case 'serve': {
-      await serve(db, config)
+      serve(db, config)
       break
     }
     case 'trace': {

@@ -1,6 +1,12 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { createInterface } from 'node:readline'
-import { all, type Db, setSync, transaction } from '../db'
+import { type Db, setSync, transaction } from '../db'
+import {
+  inputsOf,
+  type NoteRow,
+  outputsOf,
+  type TxnRow,
+} from '../graph/closure'
 import { log } from '../log'
 import { NOTE_KIND_USDC, TxKind, ZERO_COMMITMENT } from '../protocol'
 import type { PublicInputs, TxnSnapshot } from './api'
@@ -13,39 +19,11 @@ import { insertTxns, parseTxn } from './indexer'
  * transaction, oldest first, in the node's own field names.
  */
 
-interface TxnRow {
-  hash: string
-  height: number
-  idx: number
-  time: number
-  kind: TxKind
-  amount: number
-  msg_hash: string
-  burn_addr: string | null
-}
-
-interface NoteRow {
-  commitment: string
-  idx: number
-}
-
 export function exportSnapshot(db: Db, path: string): void {
   const out = createWriteStream(path)
   const txns = db
     .prepare('select * from txn order by height, idx')
     .iterate() as Iterable<TxnRow>
-  const outputs = (hash: string) =>
-    all<NoteRow>(
-      db,
-      'select commitment, created_idx as idx from note where created_tx = ?',
-      hash,
-    )
-  const inputs = (hash: string) =>
-    all<NoteRow>(
-      db,
-      'select commitment, spent_idx as idx from note where spent_tx = ?',
-      hash,
-    )
   let count = 0
   for (const t of txns) {
     const snapshot: TxnSnapshot = {
@@ -53,7 +31,11 @@ export function exportSnapshot(db: Db, path: string): void {
       block_height: t.height,
       index_in_block: t.idx,
       time: t.time,
-      public_inputs: publicInputs(t, inputs(t.hash), outputs(t.hash)),
+      public_inputs: publicInputs(
+        t,
+        inputsOf(db, t.hash),
+        outputsOf(db, t.hash),
+      ),
     }
     out.write(`${JSON.stringify(snapshot)}\n`)
     count++
@@ -68,16 +50,16 @@ function publicInputs(
   inputs: NoteRow[],
   outputs: NoteRow[],
 ): PublicInputs {
-  const pair = (notes: NoteRow[]): [string, string] => {
+  const pair = (notes: NoteRow[], idx: (n: NoteRow) => number | null) => {
     const pair: [string, string] = [ZERO_COMMITMENT, ZERO_COMMITMENT]
-    for (const n of notes) pair[n.idx] = n.commitment
+    for (const n of notes) pair[idx(n) ?? 0] = n.commitment
     return pair
   }
   const word = (hex: string) => hex.padStart(64, '0')
   const isSend = t.kind === TxKind.Send
   return {
-    input_commitments: pair(inputs),
-    output_commitments: pair(outputs),
+    input_commitments: pair(inputs, (n) => n.spent_idx),
+    output_commitments: pair(outputs, (n) => n.created_idx),
     messages: [
       word(t.kind.toString(16)),
       isSend ? ZERO_COMMITMENT : NOTE_KIND_USDC,

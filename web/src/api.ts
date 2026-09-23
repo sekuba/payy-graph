@@ -1,10 +1,10 @@
-import type { AddressSummary, Graph, Path, Status } from '../../src/graph/types'
-
-export type Resolved =
-  | { type: 'address'; address: string }
-  | { type: 'txn'; hash: string }
-  | { type: 'note'; commitment: string; createdTx?: string; spentTx?: string }
-  | { type: 'unknown' }
+import type {
+  AddressSummary,
+  Graph,
+  Path,
+  Resolved,
+  Status,
+} from '../../src/graph/types'
 
 export type Direction = 'back' | 'forward' | 'both'
 

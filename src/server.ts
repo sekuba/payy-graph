@@ -13,12 +13,13 @@ import {
   status,
 } from './graph/queries'
 import { log } from './log'
+import { TxKind } from './protocol'
 
 /**
  * Small JSON API over the index. The web UI in `web/` is its only client; in
  * production it is served from `dist/web`, in development Vite proxies /api.
  */
-export function serve(db: Db, config: Config): Promise<void> {
+export function serve(db: Db, config: Config): void {
   const app = express()
 
   app.get('/api/status', (_req, res) => {
@@ -36,7 +37,7 @@ export function serve(db: Db, config: Config): Promise<void> {
   /** the history of one withdrawal (a burn tx hash) as a path */
   app.get('/api/path/:txHash', (req, res) => {
     const burn = getTxn(db, req.params.txHash.toLowerCase().replace(/^0x/, ''))
-    if (!burn || burn.kind !== 3) {
+    if (burn?.kind !== TxKind.Burn) {
       res.status(404).json({ error: 'not a withdrawal' })
       return
     }
@@ -67,10 +68,7 @@ export function serve(db: Db, config: Config): Promise<void> {
     app.get('/{*path}', (_req, res) => res.sendFile(join(web, 'index.html')))
   }
 
-  return new Promise((resolvePromise) => {
-    app.listen(config.port, () => {
-      log('listening', { port: config.port, web: existsSync(web) })
-      resolvePromise()
-    })
+  app.listen(config.port, () => {
+    log('listening', { port: config.port, web: existsSync(web) })
   })
 }

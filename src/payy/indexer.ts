@@ -1,7 +1,7 @@
 import { type Db, getSync, setSync, transaction } from '../db'
 import { log, sleep } from '../log'
 import { TxKind, ZERO_COMMITMENT } from '../protocol'
-import { type PayyNode, type TxnSnapshot, toSnapshot } from './api'
+import type { PayyNode, TxnSnapshot } from './api'
 
 const CURSOR_KEY = 'payy_cursor'
 
@@ -25,7 +25,7 @@ export interface TxnRecord {
 
 export function parseTxn(t: TxnSnapshot): TxnRecord {
   const { input_commitments, output_commitments, messages } = t.public_inputs
-  const kind = Number(BigInt(`0x${messages[0]}`)) as TxKind
+  const kind = Number(BigInt(`0x${messages[0]}`))
   return {
     hash: t.hash,
     height: t.block_height,
@@ -93,27 +93,23 @@ export async function syncPayy(
   const startedAt = Date.now()
   for (;;) {
     const { txns, after } = await node.listTransactions(cursor)
-    if (txns.length === 0) {
-      if (!options.follow) break
-      await sleep(10_000)
-      continue
-    }
-    const records = txns.map((t) => parseTxn(toSnapshot(t)))
-    transaction(db, () => {
-      insertTxns(db, records)
-      if (after) setSync(db, CURSOR_KEY, after)
-    })
-    cursor = after ?? cursor
-    total += records.length
-    if (total % 5000 < records.length) {
-      const last = records[records.length - 1]
-      log('payy sync', {
-        txns: total,
-        height: last?.height,
-        rate: `${Math.round(total / ((Date.now() - startedAt) / 1000))}/s`,
+    if (txns.length > 0) {
+      const records = txns.map(parseTxn)
+      transaction(db, () => {
+        insertTxns(db, records)
+        if (after) setSync(db, CURSOR_KEY, after)
       })
+      cursor = after ?? cursor
+      total += records.length
+      if (total % 5000 < records.length) {
+        log('payy sync', {
+          txns: total,
+          height: records[records.length - 1]?.height,
+          rate: `${Math.round(total / ((Date.now() - startedAt) / 1000))}/s`,
+        })
+      }
     }
-    if (!after) {
+    if (txns.length === 0 || !after) {
       if (!options.follow) break
       await sleep(10_000)
     }

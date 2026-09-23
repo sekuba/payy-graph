@@ -1,7 +1,15 @@
-import { all, type Db } from '../db'
+import type { Db } from '../db'
 import { labelOf, MIGRATION_DISTRIBUTION, TxKind } from '../protocol'
-import { inferAmounts } from './amounts'
-import { collect, getNote, getTxn, type NoteRow, type TxnRow } from './closure'
+import { type Bounds, inferAmounts } from './amounts'
+import {
+  collect,
+  getNote,
+  getTxn,
+  inputsOf,
+  type NoteRow,
+  outputsOf,
+  type TxnRow,
+} from './closure'
 import {
   DEFAULT_LIMIT,
   depositOf,
@@ -34,7 +42,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
 
   const push = (t: TxnRow) => {
     steps.push(t)
-    for (const n of inputsOf(db, t)) consumed.add(n.commitment)
+    for (const n of inputsOf(db, t.hash)) consumed.add(n.commitment)
   }
 
   while (txn && steps.length < MAX_HOPS) {
@@ -50,7 +58,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
       }
       break
     }
-    const inputs = inputsOf(db, txn)
+    const inputs = inputsOf(db, txn.hash)
     if (inputs.length === 2) {
       const rejoin = findRejoin(db, inputs)
       if (!rejoin) {
@@ -87,7 +95,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   )
   const released = steps.map((t) => ({
     txn: t,
-    notes: outputsOf(db, t).filter((n) => !consumed.has(n.commitment)),
+    notes: outputsOf(db, t.hash).filter((n) => !consumed.has(n.commitment)),
   }))
   for (const { notes } of released) {
     for (const n of notes) {
@@ -95,7 +103,10 @@ export function walkPath(db: Db, burn: TxnRow): Path {
       const spender = getTxn(db, n.spent_tx)
       if (!spender) continue
       closure.txns.set(spender.hash, spender)
-      for (const m of [...inputsOf(db, spender), ...outputsOf(db, spender)]) {
+      for (const m of [
+        ...inputsOf(db, spender.hash),
+        ...outputsOf(db, spender.hash),
+      ]) {
         closure.notes.set(m.commitment, m)
       }
     }
@@ -111,14 +122,6 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   return { withdrawal: withdrawalOf(db, burn), hops, origin }
 }
 
-function inputsOf(db: Db, txn: TxnRow): NoteRow[] {
-  return all<NoteRow>(db, 'select * from note where spent_tx = ?', txn.hash)
-}
-
-function outputsOf(db: Db, txn: TxnRow): NoteRow[] {
-  return all<NoteRow>(db, 'select * from note where created_tx = ?', txn.hash)
-}
-
 /**
  * For a merge of two notes: walk each note's history back along single-input
  * transactions and look for the transaction both descend from. If it exists
@@ -127,17 +130,16 @@ function outputsOf(db: Db, txn: TxnRow): NoteRow[] {
  */
 function findRejoin(
   db: Db,
-  inputs: NoteRow[],
+  [a, b]: NoteRow[],
 ): { split: TxnRow; branches: TxnRow[] } | undefined {
-  const chains = inputs.map((n) => chainBack(db, n))
-  const [a, b] = chains
   if (!a || !b) return undefined
-  for (let i = 0; i < a.length; i++) {
-    const j = b.findIndex((t) => t.hash === a[i]?.hash)
-    if (j < 0) continue
-    const split = a[i]
-    if (!split) return undefined
-    return { split, branches: [...a.slice(0, i), ...b.slice(0, j)] }
+  const chainA = chainBack(db, a)
+  const chainB = chainBack(db, b)
+  for (const [i, split] of chainA.entries()) {
+    const j = chainB.findIndex((t) => t.hash === split.hash)
+    if (j >= 0) {
+      return { split, branches: [...chainA.slice(0, i), ...chainB.slice(0, j)] }
+    }
   }
   return undefined
 }
@@ -149,7 +151,7 @@ function chainBack(db: Db, note: NoteRow): TxnRow[] {
     const t = getTxn(db, hash)
     if (!t) break
     chain.push(t)
-    const ins = inputsOf(db, t)
+    const ins = inputsOf(db, t.hash)
     if (ins.length !== 1) break
     hash = ins[0]?.created_tx ?? null
   }
@@ -160,7 +162,7 @@ function hopOf(
   db: Db,
   txn: TxnRow,
   released: NoteRow | undefined,
-  bounds: ReturnType<typeof inferAmounts>,
+  bounds: Map<string, Bounds>,
 ): PathHop {
   const kind =
     txn.kind === TxKind.Burn
@@ -221,9 +223,10 @@ function destinationOf(db: Db, note: NoteRow): Destination {
   const recipients = new Map<string, number>()
   const seen = new Set<string>()
   const queue = [note.commitment]
-  while (queue.length > 0 && seen.size < FORWARD_LIMIT) {
-    const commitment = queue.shift()
-    const n = commitment ? getNote(db, commitment) : undefined
+  // breadth first; the queue grows while it is iterated
+  for (const commitment of queue) {
+    if (seen.size >= FORWARD_LIMIT) break
+    const n = getNote(db, commitment)
     if (!n?.spent_tx || seen.has(n.spent_tx)) continue
     seen.add(n.spent_tx)
     const t = getTxn(db, n.spent_tx)
@@ -233,7 +236,7 @@ function destinationOf(db: Db, note: NoteRow): Destination {
       recipients.set(r, (recipients.get(r) ?? 0) + 1)
       continue
     }
-    for (const o of outputsOf(db, t)) queue.push(o.commitment)
+    for (const o of outputsOf(db, t.hash)) queue.push(o.commitment)
   }
   if (recipients.size === 0) return { type: 'circulating' }
   return {

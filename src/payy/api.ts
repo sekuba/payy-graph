@@ -7,16 +7,6 @@ export interface PublicInputs {
   messages: [string, string, string, string, string]
 }
 
-export interface PayyTxn {
-  hash: string
-  block_height: number
-  index_in_block: number
-  time: number
-  proof: {
-    public_inputs: PublicInputs
-  }
-}
-
 /** The part of a transaction this project keeps: the export format */
 export interface TxnSnapshot {
   hash: string
@@ -26,19 +16,11 @@ export interface TxnSnapshot {
   public_inputs: PublicInputs
 }
 
-export function toSnapshot(t: PayyTxn): TxnSnapshot {
-  return {
-    hash: t.hash,
-    block_height: t.block_height,
-    index_in_block: t.index_in_block,
-    time: t.time,
-    public_inputs: t.proof.public_inputs,
-  }
-}
-
 interface ListTxnsResponse {
-  txns: PayyTxn[]
-  cursor: { after: string | null; before: string | null }
+  txns: (Omit<TxnSnapshot, 'public_inputs'> & {
+    proof: { public_inputs: PublicInputs }
+  })[]
+  cursor: { after: string | null }
 }
 
 /**
@@ -48,28 +30,23 @@ interface ListTxnsResponse {
 export class PayyNode {
   constructor(private readonly baseUrl: string) {}
 
-  /** Pages through history oldest first, at most 100 txns per page */
+  /** Pages through history oldest first, 100 txns per page */
   async listTransactions(
     cursor: string | undefined,
-    limit = 100,
-  ): Promise<{ txns: PayyTxn[]; after: string | undefined }> {
+  ): Promise<{ txns: TxnSnapshot[]; after: string | undefined }> {
     const params = new URLSearchParams({
       order: 'OldestToNewest',
-      limit: String(limit),
+      limit: '100',
     })
     if (cursor) params.set('cursor', cursor)
     const res = await this.get<ListTxnsResponse>(`/transactions?${params}`)
-    return { txns: res.txns, after: res.cursor.after ?? undefined }
-  }
-
-  async getTransaction(hash: string): Promise<PayyTxn> {
-    const res = await this.get<{ txn: PayyTxn }>(`/transactions/${hash}`)
-    return res.txn
-  }
-
-  async getHeight(): Promise<number> {
-    const res = await this.get<{ height: number }>('/height')
-    return res.height
+    return {
+      txns: res.txns.map(({ proof, ...t }) => ({
+        ...t,
+        public_inputs: proof.public_inputs,
+      })),
+      after: res.cursor.after ?? undefined,
+    }
   }
 
   private async get<T>(path: string): Promise<T> {

@@ -1,6 +1,6 @@
 import type { Destination, Path, PathHop } from '../../src/graph/types'
+import { CHAINS, type ChainId } from '../../src/protocol'
 import {
-  CHAIN_NAME,
   date,
   l1AddressUrl,
   l1TxUrl,
@@ -77,7 +77,7 @@ function Origin({ path }: { path: Path }) {
             label={o.deposit.label}
             chain={o.deposit.chain}
           />{' '}
-          on {CHAIN_NAME[o.deposit.chain]}, {date(o.deposit.time)}.
+          on {CHAINS[o.deposit.chain].name}, {date(o.deposit.time)}.
         </span>
       ) : (
         <span>
@@ -202,7 +202,7 @@ function Address({
 }: {
   address: string
   label?: string
-  chain?: 'ethereum' | 'polygon'
+  chain?: ChainId
   l1Tx?: string
 }) {
   const text = label ?? shortHex(address, 6)

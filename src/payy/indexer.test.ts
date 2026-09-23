@@ -1,11 +1,13 @@
 import { expect } from 'earl'
 import { openDb } from '../db'
 import { collect } from '../graph/closure'
-import { TxKind } from '../protocol'
+import {
+  NOTE_KIND_USDC as KIND,
+  TxKind,
+  ZERO_COMMITMENT as ZERO,
+} from '../protocol'
 import { insertTxns, parseTxn } from './indexer'
 
-const ZERO = '0'.repeat(64)
-const KIND = '000200000000000000893c499c542cef5e3811e1192ce70d8cc03d5c33590000'
 const word = (n: number) => n.toString(16).padStart(64, '0')
 
 /** A real Payy burn as the node returns it (height 33066342) */

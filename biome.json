@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
     "includes": ["**", "!**/node_modules", "!**/dist", "!**/data"]
   },
@@ -24,25 +24,20 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "style": {
         "noDefaultExport": "error",
         "noNonNullAssertion": "error",
         "useImportType": "error",
-        "useAsConstAssertion": "error",
-        "noParameterAssign": "off"
+        "useAsConstAssertion": "error"
       },
       "suspicious": {
-        "noExplicitAny": "error",
-        "noAssignInExpressions": "off"
+        "noExplicitAny": "error"
       },
       "correctness": {
         "noUnusedImports": "error",
         "noUnusedVariables": "error",
         "noUnusedFunctionParameters": "error"
-      },
-      "complexity": {
-        "noUselessSwitchCase": "off"
       }
     }
   },

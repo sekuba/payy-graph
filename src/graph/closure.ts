@@ -37,13 +37,12 @@ export function getNote(db: Db, commitment: string): NoteRow | undefined {
   return one<NoteRow>(db, 'select * from note where commitment = ?', commitment)
 }
 
-function notesOf(db: Db, txHash: string): NoteRow[] {
-  return all<NoteRow>(
-    db,
-    'select * from note where created_tx = ? or spent_tx = ?',
-    txHash,
-    txHash,
-  )
+export function inputsOf(db: Db, txHash: string): NoteRow[] {
+  return all<NoteRow>(db, 'select * from note where spent_tx = ?', txHash)
+}
+
+export function outputsOf(db: Db, txHash: string): NoteRow[] {
+  return all<NoteRow>(db, 'select * from note where created_tx = ?', txHash)
 }
 
 /**
@@ -64,9 +63,9 @@ export function collect(
   const hops = new Map<string, number>()
   const queue = start.map((hash) => ({ hash, hop: 0 }))
   let truncated = false
-  while (queue.length > 0) {
-    const next = queue.shift()
-    if (next === undefined || txns.has(next.hash)) continue
+  // breadth first; the queue grows while it is iterated
+  for (const next of queue) {
+    if (txns.has(next.hash)) continue
     if (txns.size >= limit) {
       truncated = true
       break
@@ -75,7 +74,10 @@ export function collect(
     if (!txn) continue
     txns.set(next.hash, txn)
     hops.set(next.hash, next.hop)
-    for (const note of notesOf(db, next.hash)) {
+    for (const note of [
+      ...inputsOf(db, txn.hash),
+      ...outputsOf(db, txn.hash),
+    ]) {
       notes.set(note.commitment, note)
       const hop = next.hop + 1
       if (direction.backward && note.spent_tx === txn.hash && note.created_tx) {

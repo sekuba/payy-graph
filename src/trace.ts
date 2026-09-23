@@ -31,12 +31,13 @@ export function trace(db: Db, input: string): void {
       )
       break
     case 'note': {
-      const start = [resolved.spentTx ?? resolved.createdTx].filter(
-        (h): h is string => h !== undefined,
-      )
+      const start = resolved.spentTx ?? resolved.createdTx
       printGraph(
         out,
-        graphAround(db, start, { backward: true, forward: false }),
+        graphAround(db, start ? [start] : [], {
+          backward: true,
+          forward: false,
+        }),
       )
       break
     }
@@ -69,7 +70,7 @@ function describeWithdrawal(w: Withdrawal): string {
   return `${usdc(w.amount)} USDC to ${w.recipient}${label} ${where} ${date(w.time)}${w.substituted ? ' (fronted)' : ''}${link}`
 }
 
-export function usdc(amount: number): string {
+function usdc(amount: number): string {
   return (amount / 10 ** USDC_DECIMALS)
     .toFixed(USDC_DECIMALS)
     .replace(/\.?0+$/, '')

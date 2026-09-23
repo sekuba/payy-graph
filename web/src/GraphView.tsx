@@ -148,7 +148,6 @@ function Edge({
   const { note } = edge
   const determined = note.value !== undefined
   const leaves = edge.from && !edge.to
-  const end = pathEnd(edge.path)
   return (
     <g
       onPointerMove={(e) => onHover(e.clientX, e.clientY)}
@@ -166,8 +165,8 @@ function Edge({
       />
       {leaves && (
         <circle
-          cx={end.x}
-          cy={end.y}
+          cx={edge.end.x}
+          cy={edge.end.y}
           r={4}
           fill={note.continues ? 'var(--muted)' : 'var(--surface)'}
           stroke="var(--muted)"
@@ -188,11 +187,6 @@ function Edge({
       )}
     </g>
   )
-}
-
-function pathEnd(path: string): { x: number; y: number } {
-  const m = /([\d.-]+),([\d.-]+)$/.exec(path)
-  return { x: Number(m?.[1] ?? 0), y: Number(m?.[2] ?? 0) }
 }
 
 function Node({

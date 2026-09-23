@@ -45,6 +45,7 @@ export interface PlacedEdge {
   path: string
   /** label anchor */
   mid: { x: number; y: number }
+  end: { x: number; y: number }
 }
 
 export interface Layout {
@@ -56,24 +57,22 @@ export interface Layout {
 
 export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
   const byHash = new Map(graph.txns.map((t) => [t.hash, t]))
-  const inView = (n: NoteEdge) =>
-    n.from !== undefined &&
-    n.to !== undefined &&
-    byHash.has(n.from) &&
-    byHash.has(n.to)
-
-  // Adjacency over the transactions in view
+  // notes with both ends in view, as (creator, spender) pairs
+  const links: [string, string][] = []
+  for (const n of graph.notes) {
+    if (n.from && n.to && byHash.has(n.from) && byHash.has(n.to)) {
+      links.push([n.from, n.to])
+    }
+  }
   const preds = new Map<string, string[]>()
   const succs = new Map<string, string[]>()
   for (const t of graph.txns) {
     preds.set(t.hash, [])
     succs.set(t.hash, [])
   }
-  for (const n of graph.notes) {
-    if (inView(n) && n.from && n.to) {
-      preds.get(n.to)?.push(n.from)
-      succs.get(n.from)?.push(n.to)
-    }
+  for (const [from, to] of links) {
+    preds.get(to)?.push(from)
+    succs.get(from)?.push(to)
   }
 
   // Runs of sends with a single neighbour on each side collapse into groups
@@ -124,12 +123,10 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
     rPreds.set(id, [])
     rSuccs.set(id, [])
   }
-  const isReducedEdge = (n: NoteEdge) =>
-    inView(n) && n.from && n.to && nodeId(n.from) !== nodeId(n.to)
-  for (const n of graph.notes) {
-    if (isReducedEdge(n) && n.from && n.to) {
-      rPreds.get(nodeId(n.to))?.push(nodeId(n.from))
-      rSuccs.get(nodeId(n.from))?.push(nodeId(n.to))
+  for (const [from, to] of links) {
+    if (nodeId(from) !== nodeId(to)) {
+      rPreds.get(nodeId(to))?.push(nodeId(from))
+      rSuccs.get(nodeId(from))?.push(nodeId(to))
     }
   }
 
@@ -143,7 +140,8 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
   const layers: string[][] = []
   for (const id of ids) {
     const l = layer.get(id) ?? 0
-    ;(layers[l] ??= []).push(id)
+    layers[l] ??= []
+    layers[l].push(id)
   }
 
   // Ordering: sweep right then left a few times, sorting each layer by the
@@ -214,7 +212,7 @@ export function layoutGraph(graph: Graph, expanded: Set<string>): Layout {
 function route(
   from: PlacedNode | undefined,
   to: PlacedNode | undefined,
-): { path: string; mid: { x: number; y: number } } {
+): Pick<PlacedEdge, 'path' | 'mid' | 'end'> {
   const stub = COL_GAP * 0.6
   const start = from
     ? { x: from.x + NODE_W, y: from.y + NODE_H / 2 }
@@ -228,5 +226,6 @@ function route(
   return {
     path: `M${start.x},${start.y} C${cx},${start.y} ${cx},${end.y} ${end.x},${end.y}`,
     mid: { x: cx, y: (start.y + end.y) / 2 },
+    end,
   }
 }

@@ -1,7 +1,6 @@
 import { sleep } from '../log'
 
 export interface Log {
-  address: string
   topics: string[]
   data: string
   blockNumber: number
@@ -18,7 +17,6 @@ export interface LogFilter {
 }
 
 interface RawLog {
-  address: string
   topics: string[]
   data: string
   blockNumber: string
@@ -60,7 +58,6 @@ export class JsonRpc {
       return [...a, ...b]
     }
     return raw.map((l) => ({
-      address: l.address.toLowerCase(),
       topics: l.topics,
       data: l.data,
       blockNumber: Number(l.blockNumber),
@@ -135,6 +132,6 @@ function isTooLarge(e: unknown): boolean {
   return /size exceeded|too many|limit|more than|range/i.test(String(e))
 }
 
-export function hex(n: number): string {
+function hex(n: number): string {
   return `0x${n.toString(16)}`
 }
