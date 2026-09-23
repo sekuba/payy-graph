@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Graph, NoteEdge } from '../../src/graph/types'
 import { useAddressText } from './Address'
+import { originName } from './Bridge'
 import { DUST, date, shortHex, usdc } from './format'
 import {
   CARD_ID,
@@ -58,6 +59,9 @@ export function GraphView({ graph, focus, onSelect, onMore }: Props) {
   )
   const addressText = useAddressText([
     ...graph.deposits.map((d) => d.depositor),
+    ...graph.deposits.flatMap((d) =>
+      d.bridge ? [d.bridge.funder?.address ?? d.bridge.depositor] : [],
+    ),
     ...graph.withdrawals.map((w) => w.recipient),
   ])
   const labels = nodeLabels(graph, addressText)
@@ -364,7 +368,16 @@ function nodeLabels(
   addressText: (a: string) => string,
 ): Map<string, string> {
   const labels = new Map<string, string>()
-  for (const d of graph.deposits) labels.set(d.txHash, addressText(d.depositor))
+  // a bridged deposit by who sent it on the other chain
+  for (const d of graph.deposits) {
+    const b = d.bridge
+    labels.set(
+      d.txHash,
+      b
+        ? `${addressText(b.funder?.address ?? b.depositor)} · ${originName(b.chain)}`
+        : addressText(d.depositor),
+    )
+  }
   for (const w of graph.withdrawals) {
     labels.set(w.txHash, addressText(w.recipient))
   }

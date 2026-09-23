@@ -14,9 +14,12 @@ export function Address({
   full,
   quiet,
   noName,
+  explorer,
 }: {
   address: string
   chain?: ChainId
+  /** explorer to link to instead of `chain`'s, for other chains */
+  explorer?: string
   /** link to this L1 transaction instead of the address */
   l1Tx?: string
   /** show the whole hex when there is no label or name */
@@ -45,11 +48,13 @@ export function Address({
     .filter(Boolean)
     .join('\n')
   const className = label ? 'chip' : name ? 'name' : 'mono'
-  const href = chain
-    ? l1Tx
-      ? l1TxUrl(chain, l1Tx)
-      : l1AddressUrl(chain, address)
-    : undefined
+  const href = explorer
+    ? `${explorer}/${l1Tx ? `tx/${l1Tx}` : `address/${address}`}`
+    : chain
+      ? l1Tx
+        ? l1TxUrl(chain, l1Tx)
+        : l1AddressUrl(chain, address)
+      : undefined
   return href ? (
     <a
       href={href}

@@ -58,6 +58,32 @@ export interface Deposit {
   hops?: number
   /** its part in the focused withdrawals (src/graph/sources.ts) */
   share?: Share
+  /** set when its USDC was bridged in from another chain just before */
+  bridge?: Bridged
+}
+
+/** A deposit's USDC bridged in from another chain (src/l1/bridges.ts) */
+export interface Bridged {
+  via: 'Across'
+  /** EVM chain id it came from */
+  chain: number
+  /** the address that deposited into Across there */
+  depositor: string
+  /** the fill on the settlement chain that paid the Payy depositor */
+  fillTx: string
+  /** the transfer into Across on the origin chain, once looked up */
+  originTx?: string
+  originTime?: number
+  /** the transfer that paid `depositor` shortly before it bridged */
+  funder?: {
+    address: string
+    tx: string
+    time: number
+    /** in micro units, when the token is one of the known dollar tokens */
+    amount?: number
+    /** that token, e.g. USDT when Across swapped it to USDC */
+    symbol?: string
+  }
 }
 
 export interface Withdrawal {

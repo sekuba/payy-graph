@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Deposit, Destination, Path, PathHop } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
+import { BridgeText } from './Bridge'
 import {
   between,
   DUST,
@@ -291,7 +292,14 @@ function Origin({ path }: { path: Path }) {
             chain={o.deposit.chain}
             l1Tx={o.deposit.l1Tx}
           />{' '}
-          on {CHAINS[o.deposit.chain].name}, {date(o.deposit.time)}.
+          on {CHAINS[o.deposit.chain].name}, {date(o.deposit.time)}
+          {o.deposit.bridge && (
+            <>
+              {' '}
+              (<BridgeText deposit={o.deposit} />)
+            </>
+          )}
+          .
         </span>
       ) : (
         <span>
@@ -394,6 +402,12 @@ function DepositText({ d }: { d: Deposit }) {
       the deposit of {usdc(d.amount)} USDC by{' '}
       <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} /> on{' '}
       {date(d.time)}
+      {d.bridge && (
+        <>
+          {' '}
+          (<BridgeText deposit={d} />)
+        </>
+      )}
     </>
   )
 }

@@ -77,6 +77,23 @@ withdrawals. The parts of the graph that can put less than one cent into
 the withdrawal are drawn faint; Payy withdrawals are whole cents. When the
 history is larger than the walk, only the lower bounds are given.
 
+## Deposits bridged in from other chains
+
+The Payy app deposits USDC held on other chains through
+[Across](https://across.to): the user pays an address the app keeps for them
+on that chain, which bridges the funds (swapping USDT to USDC if needed); a
+relayer fills them to a fresh address on the settlement chain, which
+deposits into Payy seconds later. About a fifth of deposits arrive this way.
+The sync traces them back across the bridge ([`src/l1/bridges.ts`](src/l1/bridges.ts)):
+when the last USDC transfer into a depositor before its deposit is an Across
+fill of exactly the deposited amount, the fill names the origin chain and
+the origin address. On the origin chain, the Across deposit is found by its
+id, and the transfer that paid the origin address just before it (within an
+hour) names who sent the funds. A search for that sender lists the deposit.
+Because the app reuses the origin address, it also links all of one user's
+bridged deposits. Origin chains need an RPC each (see `.env.example`);
+without one, the deposit still shows its origin chain and address.
+
 ## Labels and names
 
 Addresses operated by Payy are labelled in `src/protocol.ts`. Other public
@@ -97,6 +114,7 @@ src/payy/            node API client, history indexer, snapshot import/export
 src/l1/              minimal JSON-RPC client, event decoding, L1 indexer
 src/graph/           closure walk, roles, amount inference, queries, types
 src/l1/names.ts      ENS and GNS reverse lookups
+src/l1/bridges.ts    deposits bridged in through Across, traced to the origin chain
 src/labels.ts        builds src/labels.generated.ts from public sources
 src/server.ts        JSON API (express)
 src/trace.ts         command line view
@@ -106,7 +124,7 @@ web/                 Vite + React UI: search, layered graph, tables
 
 Storage is one SQLite file (`node:sqlite`, no native dependency), one table
 per kind of fact: `txn`, `note`, `deposit`, `burned`, `settlement`, and the
-derived `role`, `card_batch` and `name`.
+derived `role`, `card_batch`, `bridge_in` and `name`.
 
 ## Running
 
@@ -124,6 +142,7 @@ pnpm dev check              # consistency checks
 pnpm dev roles              # classify migration and card batches (sync does this too)
 pnpm dev traces             # trace all withdrawals now (sync does it a slice at a time)
 pnpm dev names              # resolve ENS and GNS names of all addresses (sync keeps them fresh)
+pnpm dev bridges            # trace deposits bridged in from other chains (sync does this too)
 pnpm dev labels             # rebuild public labels (needs ETHERSCAN_API_KEY for all of it)
 pnpm dev export graph.jsonl # the whole history as public inputs, one tx per line
 pnpm dev import graph.jsonl # restore it and continue syncing from there
@@ -148,6 +167,10 @@ Afterwards `sync --follow` tails new blocks.
 - Ethereum and Polygon JSON-RPC: `eth_getLogs` on the Rollup and USDC
   contracts, `eth_getBlockByNumber` for sparse timestamps that events are
   dated by interpolation (seconds on Ethereum, about a minute on Polygon).
+- For bridged deposits: the Across fill in the receipt of the transfer that
+  funded the depositor, and on the origin chain (Base, Arbitrum, Optimism,
+  BNB Chain, or the other settlement chain) the Across deposit and the
+  token transfers into the origin address.
 
 The node is operated by Payy and is the only public copy of the history, so
 `export` writes the graph to a file that can be kept and shared independently.

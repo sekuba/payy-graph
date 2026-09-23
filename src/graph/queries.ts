@@ -1,5 +1,6 @@
 import { all, type Db, getSync, one } from '../db'
-import { type ChainId, labelOf, TxKind } from '../protocol'
+import type { BridgeRow } from '../l1/bridges'
+import { type ChainId, labelOf, ORIGIN_CHAINS, TxKind } from '../protocol'
 import { type Bounds, inferAmounts } from './amounts'
 import {
   collect,
@@ -14,6 +15,7 @@ import { cardBatch, migrationSummary, Role } from './roles'
 import { flowInto } from './sources'
 import type {
   AddressSummary,
+  Bridged,
   CardBatch,
   Deposit,
   Graph,
@@ -62,6 +64,47 @@ export function depositOf(db: Db, mint: TxnRow): Deposit | undefined {
     depositor: row.depositor,
     label: labelOf(row.depositor),
     amount: row.amount,
+    bridge: bridgeOf(db, row.chain, row.mint_hash),
+  }
+}
+
+/** How a deposit's USDC arrived from another chain, if it did */
+export function bridgeOf(
+  db: Db,
+  chain: ChainId,
+  mintHash: string,
+): Bridged | undefined {
+  const row = one<BridgeRow>(
+    db,
+    'select * from bridge_in where chain = ? and mint_hash = ?',
+    chain,
+    mintHash,
+  )
+  if (!row?.fill_tx || row.origin_chain === null || !row.origin_depositor) {
+    return undefined
+  }
+  const token = ORIGIN_CHAINS[row.origin_chain]?.tokens[row.origin_token ?? '']
+  const micro = (raw: string | null) =>
+    raw !== null && token && token.decimals >= 6
+      ? Number(BigInt(raw) / 10n ** BigInt(token.decimals - 6))
+      : undefined
+  return {
+    via: 'Across',
+    chain: row.origin_chain,
+    depositor: row.origin_depositor,
+    fillTx: row.fill_tx,
+    originTx: row.origin_tx ?? undefined,
+    originTime: row.origin_time ?? undefined,
+    funder:
+      row.funder && row.funder_tx
+        ? {
+            address: row.funder,
+            tx: row.funder_tx,
+            time: row.funder_time ?? 0,
+            amount: micro(row.funder_amount),
+            symbol: token?.symbol,
+          }
+        : undefined,
   }
 }
 
@@ -262,7 +305,10 @@ export function bySize(a: Deposit, b: Deposit): number {
   return size(b) - size(a) || (b.share?.min ?? 0) - (a.share?.min ?? 0)
 }
 
-/** Withdrawals to and deposits from an L1 address */
+/**
+ * Withdrawals to and deposits from an L1 address, including deposits it
+ * funded on another chain through a bridge
+ */
 export function addressSummary(db: Db, address: string): AddressSummary {
   const addr = address.toLowerCase()
   const burns = all<TxnRow>(
@@ -274,7 +320,13 @@ export function addressSummary(db: Db, address: string): AddressSummary {
     db,
     `select txn.* from deposit
      join txn on txn.msg_hash = deposit.mint_hash and txn.kind = 2
-     where deposit.depositor = ? group by txn.hash order by txn.height`,
+     where deposit.mint_hash in (
+       select mint_hash from deposit where depositor = ?
+       union select mint_hash from bridge_in where funder = ?
+       union select mint_hash from bridge_in where origin_depositor = ?)
+     group by txn.hash order by txn.height`,
+    addr,
+    addr,
     addr,
   )
   return {

@@ -54,6 +54,33 @@ const SCHEMA = `
   create index if not exists deposit_mint_hash on deposit(mint_hash);
   create index if not exists deposit_depositor on deposit(depositor);
 
+  -- Deposits whose USDC arrived by an Across fill of exactly the deposited
+  -- amount just before (src/l1/bridges.ts). One row per checked deposit;
+  -- fill_tx is null when it did not. On the origin chain: the Across deposit
+  -- (origin_tx), what the origin depositor paid into it, and who had paid
+  -- the origin depositor just before (funder); funder_checked is set once
+  -- that was looked up, whether or not something was found.
+  create table if not exists bridge_in (
+    chain text not null,
+    mint_hash text not null,
+    fill_tx text,
+    origin_chain integer,
+    deposit_id text,            -- Across deposit id, a decimal string
+    origin_depositor text,
+    origin_tx text,
+    origin_time integer,
+    origin_token text,          -- what the origin depositor paid in
+    origin_amount text,         -- raw token units, a decimal string
+    funder text,
+    funder_tx text,
+    funder_amount text,         -- of origin_token
+    funder_time integer,
+    funder_checked integer not null default 0,
+    primary key (chain, mint_hash)
+  );
+  create index if not exists bridge_in_funder on bridge_in(funder);
+  create index if not exists bridge_in_origin on bridge_in(origin_depositor);
+
   -- L1 Burned events, as emitted (a fronted withdrawal produces two)
   create table if not exists burned (
     chain text not null,

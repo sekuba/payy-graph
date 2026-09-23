@@ -3,6 +3,7 @@ import { loadConfig } from './config'
 import { openDb } from './db'
 import { deriveRoles } from './graph/roles'
 import { deriveTraces } from './graph/traces'
+import { syncBridges } from './l1/bridges'
 import { syncChain } from './l1/indexer'
 import { syncNames } from './l1/names'
 import { JsonRpc } from './l1/rpc'
@@ -24,6 +25,7 @@ const USAGE = `payy-graph <command>
   roles                              classify the migration and card batches
   traces                             trace every withdrawal not traced yet
   names                              resolve ENS and GNS names of all addresses
+  bridges                            trace deposits bridged in from other chains
   labels                             rebuild the public address labels
   export <file.jsonl>                write the transaction history snapshot
   import <file.jsonl>                load a snapshot and continue from it
@@ -60,6 +62,7 @@ async function main(argv: string[]): Promise<void> {
         const ethereum = config.rpcUrls.ethereum
         if (ethereum)
           jobs.push(syncNames(db, new JsonRpc(ethereum), { follow }))
+        jobs.push(bridges(config, db, follow))
       }
       // One source failing should not stop the others; report at the end.
       const results = await Promise.allSettled(jobs)
@@ -98,6 +101,10 @@ async function main(argv: string[]): Promise<void> {
       await syncNames(db, new JsonRpc(url), { follow: false })
       break
     }
+    case 'bridges': {
+      await bridges(config, db, false)
+      break
+    }
     case 'labels': {
       await buildLabels(db, config)
       break
@@ -116,6 +123,21 @@ async function main(argv: string[]): Promise<void> {
       process.stdout.write(USAGE)
       process.exitCode = command ? 1 : 0
   }
+}
+
+/** Bridged deposits over every configured settlement and origin chain */
+function bridges(
+  config: ReturnType<typeof loadConfig>,
+  db: ReturnType<typeof openDb>,
+  follow: boolean,
+): Promise<void> {
+  const settlement = Object.fromEntries(
+    Object.entries(config.rpcUrls).map(([c, url]) => [c, new JsonRpc(url)]),
+  )
+  const origins = new Map(
+    [...config.originRpcUrls].map(([id, url]) => [id, new JsonRpc(url)]),
+  )
+  return syncBridges(db, settlement, origins, { follow })
 }
 
 main(process.argv.slice(2)).catch((e: unknown) => {

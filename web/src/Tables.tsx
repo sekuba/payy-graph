@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Deposit, Withdrawal } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
+import { BridgeText } from './Bridge'
 import {
   between,
   DUST,
@@ -76,6 +77,11 @@ export function DepositTable({ deposits }: { deposits: Deposit[] }) {
           >
             <td className="py-1">
               <Address address={d.depositor} chain={d.chain} full />
+              {d.bridge && (
+                <div style={{ color: 'var(--muted)' }}>
+                  <BridgeText deposit={d} />
+                </div>
+              )}
             </td>
             <td className="mono py-1 text-right">
               {usdc(d.amount)} <span className="sm:hidden">USDC</span>

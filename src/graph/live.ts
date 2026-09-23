@@ -8,7 +8,7 @@ import {
   TxKind,
 } from '../protocol'
 import type { TxnRow } from './closure'
-import { cardBatchOf, withdrawalOf } from './queries'
+import { bridgeOf, cardBatchOf, withdrawalOf } from './queries'
 import { fromRow, traceOf } from './traces'
 import type {
   AmountMatch,
@@ -91,6 +91,7 @@ export function liveEvents(
         depositor: d.depositor,
         label: labelOf(d.depositor),
         amount: d.amount,
+        bridge: bridgeOf(db, d.chain, d.mint_hash),
       },
     })),
     ...batches.flatMap((b) => {
@@ -112,7 +113,12 @@ export function liveEvents(
           ...(e.match ? [e.match.depositor] : []),
         ]
       : e.type === 'deposit'
-        ? [e.deposit.depositor]
+        ? [
+            e.deposit.depositor,
+            ...(e.deposit.bridge?.funder
+              ? [e.deposit.bridge.funder.address]
+              : []),
+          ]
         : [],
   )
   return { events: newest, names: namesOf(db, addresses) }

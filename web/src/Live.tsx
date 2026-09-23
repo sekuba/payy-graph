@@ -9,6 +9,7 @@ import type {
 import { CHAINS, type ChainId } from '../../src/protocol'
 import { Address } from './Address'
 import { api } from './api'
+import { BridgeText } from './Bridge'
 import { date, l1TxUrl, usdc } from './format'
 import { seedNames } from './names'
 
@@ -75,7 +76,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
 
   return (
     <>
-      {stats && <Stats stats={stats} now={now} />}
+      {stats && <Stats stats={stats} />}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap gap-1 text-xs">
           {TABS.map(([id, text, title]) => (
@@ -96,6 +97,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
           events && <Feed events={events} now={now} onSelect={onSelect} />
         )}
       </section>
+      {stats && <NetworkFooter stats={stats} now={now} />}
     </>
   )
 }
@@ -213,75 +215,13 @@ function totals(t: { count: number; amount: number }): React.ReactNode {
   )
 }
 
-function Stats({ stats, now }: { stats: LiveStats; now: number }) {
+/** What the public data reveals: how withdrawals trace back to deposits */
+function Stats({ stats }: { stats: LiveStats }) {
   const [range, setRange] = useState<'week' | 'all'>('week')
   const t = stats.traces[range]
-  const d = stats.day
   const share = t.count ? Math.round((100 * t.single) / t.count) : undefined
-  const settled = (
-    Object.entries(stats.settled) as [
-      ChainId,
-      { height: number; time: number },
-    ][]
-  ).sort((a, b) => b[1].height - a[1].height)[0]
   return (
     <section className="card grid gap-1 p-3 text-sm">
-      <div className="stats">
-        <Stat label="height" title="latest Payy block">
-          {stats.payyHeight?.toLocaleString('en-US') ?? '–'}
-          {stats.payyTime && <Muted> {ago(now - stats.payyTime)} ago</Muted>}
-        </Stat>
-        {settled && (
-          <Stat
-            label="settled"
-            title={`latest Payy height whose state root was posted to ${CHAINS[settled[0]].name}; withdrawals above it are paid early by Payy or wait`}
-          >
-            {settled[1].height.toLocaleString('en-US')}
-            <Muted>
-              {' '}
-              on {CHAINS[settled[0]].name}, {ago(now - settled[1].time)} ago
-            </Muted>
-          </Stat>
-        )}
-        <Stat
-          label="transactions"
-          title="all Payy transactions since 2025-08-28"
-        >
-          {stats.txns.toLocaleString('en-US')}
-        </Stat>
-        {Object.entries(stats.locked)
-          .filter(([, amount]) => (amount ?? 0) >= 1e6)
-          .map(([chain, amount]) => (
-            <Stat
-              key={chain}
-              label={`USDC in rollup · ${CHAINS[chain as ChainId].name}`}
-              title="USDC balance of the Payy Rollup contract"
-            >
-              {whole(amount ?? 0)}
-            </Stat>
-          ))}
-      </div>
-      <div className="stats">
-        <Stat label="24h deposits" title="deposits on L1 in the last 24 hours">
-          {d.deposits.count} <Muted>· {whole(d.deposits.amount)} USDC</Muted>
-        </Stat>
-        <Stat
-          label="24h withdrawals"
-          title="withdrawals in the last 24 hours, not counting card batches"
-        >
-          {d.withdrawals.count}{' '}
-          <Muted>· {whole(d.withdrawals.amount)} USDC</Muted>
-        </Stat>
-        <Stat
-          label="24h card"
-          title="card payments merged into the card batches withdrawn in the last 24 hours"
-        >
-          {d.card.payments} payments{' '}
-          <Muted>
-            · {d.card.batches} batches · {whole(d.card.amount)} USDC
-          </Muted>
-        </Stat>
-      </div>
       <div className="stats">
         <Stat
           label="traced to one deposit"
@@ -340,6 +280,80 @@ function Stats({ stats, now }: { stats: LiveStats; now: number }) {
         </Stat>
       </div>
     </section>
+  )
+}
+
+/**
+ * The state of the network, which has nothing to do with privacy: heights,
+ * settlement, the Rollup's balance and the last day's activity
+ */
+function NetworkFooter({ stats, now }: { stats: LiveStats; now: number }) {
+  const d = stats.day
+  const settled = (
+    Object.entries(stats.settled) as [
+      ChainId,
+      { height: number; time: number },
+    ][]
+  ).sort((a, b) => b[1].height - a[1].height)[0]
+  return (
+    <footer className="hairline grid gap-1 border-t px-1 pt-2 text-xs">
+      <div className="stats">
+        <Stat label="height" title="latest Payy block">
+          {stats.payyHeight?.toLocaleString('en-US') ?? '–'}
+          {stats.payyTime && <Muted> {ago(now - stats.payyTime)} ago</Muted>}
+        </Stat>
+        {settled && (
+          <Stat
+            label="settled"
+            title={`latest Payy height whose state root was posted to ${CHAINS[settled[0]].name}; withdrawals above it are paid early by Payy or wait`}
+          >
+            {settled[1].height.toLocaleString('en-US')}
+            <Muted>
+              {' '}
+              on {CHAINS[settled[0]].name}, {ago(now - settled[1].time)} ago
+            </Muted>
+          </Stat>
+        )}
+        <Stat
+          label="transactions"
+          title="all Payy transactions since 2025-08-28"
+        >
+          {stats.txns.toLocaleString('en-US')}
+        </Stat>
+        {Object.entries(stats.locked)
+          .filter(([, amount]) => (amount ?? 0) >= 1e6)
+          .map(([chain, amount]) => (
+            <Stat
+              key={chain}
+              label={`USDC in rollup · ${CHAINS[chain as ChainId].name}`}
+              title="USDC balance of the Payy Rollup contract"
+            >
+              {whole(amount ?? 0)}
+            </Stat>
+          ))}
+      </div>
+      <div className="stats">
+        <Stat label="24h deposits" title="deposits on L1 in the last 24 hours">
+          {d.deposits.count} <Muted>· {whole(d.deposits.amount)} USDC</Muted>
+        </Stat>
+        <Stat
+          label="24h withdrawals"
+          title="withdrawals in the last 24 hours, not counting card batches"
+        >
+          {d.withdrawals.count}{' '}
+          <Muted>· {whole(d.withdrawals.amount)} USDC</Muted>
+        </Stat>
+        <Stat
+          label="24h card"
+          title="card payments merged into the card batches withdrawn in the last 24 hours"
+        >
+          {d.card.payments} payments{' '}
+          <Muted>
+            · {d.card.batches} batches · {whole(d.card.amount)} USDC
+          </Muted>
+        </Stat>
+      </div>
+    </footer>
   )
 }
 
@@ -442,6 +456,11 @@ function Row({
         <td className="mono py-1 pr-2 text-right">{usdc(e.deposit.amount)}</td>
         <td className="py-1 pr-2">
           ← <Address address={e.deposit.depositor} chain={e.deposit.chain} />
+          {e.deposit.bridge && (
+            <span className="ml-2 text-xs" style={{ color: 'var(--muted)' }}>
+              <BridgeText deposit={e.deposit} />
+            </span>
+          )}
         </td>
         <td className="py-1" style={{ color: 'var(--muted)' }}>
           <a

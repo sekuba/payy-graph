@@ -16,6 +16,15 @@ export interface LogFilter {
   toBlock: number
 }
 
+/** A log as a receipt holds it; only the fields used here */
+export interface ReceiptLog {
+  address: string
+  topics: string[]
+  data: string
+  /** hex */
+  logIndex: string
+}
+
 interface RawLog {
   topics: string[]
   data: string
@@ -81,6 +90,22 @@ export class JsonRpc {
         const r = responses[j]
         if (r) result.set(b, Number(r.timestamp))
       })
+    }
+    return result
+  }
+
+  /** Logs of many transactions, from their receipts, batched */
+  async getReceiptLogs(txs: string[]): Promise<Map<string, ReceiptLog[]>> {
+    const result = new Map<string, ReceiptLog[]>()
+    for (let i = 0; i < txs.length; i += 50) {
+      const batch = txs.slice(i, i + 50)
+      const receipts = await this.batch<{ logs: ReceiptLog[] } | null>(
+        batch.map((t) => ({
+          method: 'eth_getTransactionReceipt',
+          params: [t],
+        })),
+      )
+      batch.forEach((t, j) => void result.set(t, receipts[j]?.logs ?? []))
     }
     return result
   }

@@ -171,3 +171,122 @@ export function labelSource(address: string): string | undefined {
   if (KNOWN_ADDRESSES[a]) return 'Payy, as observed onchain (src/protocol.ts)'
   return PUBLIC_LABELS[a]?.source
 }
+
+/**
+ * Cross-chain deposits. The Payy app deposits USDC held on other chains
+ * through Across: the user pays a fresh address on that chain, which
+ * deposits into Across; a relayer fills the same amount minus fees to a
+ * fresh address on the settlement chain, which deposits it into Payy with an
+ * EIP-3009 authorization seconds later. The fill names the origin chain and
+ * the origin depositor, so the deposit is traced back across the bridge
+ * (src/l1/bridges.ts). Verified with a deposit from Base on 2026-09-23:
+ * Base 0x5a0cf28c…, Across deposit 6239727, fill 0xfe4ba410…, Payy deposit
+ * 0x2c0ba73d….
+ */
+export const ACROSS = {
+  /** SpokePool proxies that fill relays on the settlement chains */
+  spokePools: {
+    ethereum: '0x5c7bcd6e7de5423a257d81b442095a1a6ced35c5',
+    polygon: '0x9295ee1d8c5b022be115a2ad3c30c72e34e7f096',
+  } as Record<ChainId, string>,
+  /**
+   * FilledRelay(bytes32 inputToken, bytes32 outputToken, uint256 inputAmount,
+   * uint256 outputAmount, uint256 repaymentChainId, uint256 indexed
+   * originChainId, uint256 indexed depositId, uint32 fillDeadline, uint32
+   * exclusivityDeadline, bytes32 exclusiveRelayer, bytes32 indexed relayer,
+   * bytes32 depositor, bytes32 recipient, bytes32 messageHash,
+   * (bytes32 updatedRecipient, bytes32 updatedMessageHash,
+   * uint256 updatedOutputAmount, uint8 fillType) relayExecutionInfo)
+   */
+  FilledRelay:
+    '0x44b559f101f8fbcc8a0ea43fa91a05a729a5ea6e14a7c75aa750374690137208',
+  /**
+   * FundsDeposited(bytes32 inputToken, bytes32 outputToken, uint256
+   * inputAmount, uint256 outputAmount, uint256 indexed destinationChainId,
+   * uint256 indexed depositId, uint32 quoteTimestamp, uint32 fillDeadline,
+   * uint32 exclusivityDeadline, bytes32 indexed depositor, bytes32 recipient,
+   * bytes32 exclusiveRelayer, bytes message), on the origin chain
+   */
+  FundsDeposited:
+    '0x32ed1a409ef04c7b0227189c3a103dc5ac10e775a15b785dcc510201f7c25ad3',
+}
+
+/**
+ * A chain deposits are bridged from, by EVM chain id. Users often pay in
+ * USDT, which Across's periphery swaps to USDC before depositing.
+ */
+export interface OriginChain {
+  name: string
+  explorer: string
+  /** Environment variable holding the RPC url */
+  rpcEnv: string
+  /** Across SpokePool there */
+  spokePool: string
+  /** the tokens whose amounts are shown, by address */
+  tokens: Record<string, { symbol: string; decimals: number }>
+}
+
+export const ORIGIN_CHAINS: Record<number, OriginChain> = {
+  1: {
+    name: 'Ethereum',
+    explorer: 'https://etherscan.io',
+    rpcEnv: 'ETHEREUM_RPC_URL',
+    spokePool: '0x5c7bcd6e7de5423a257d81b442095a1a6ced35c5',
+    tokens: {
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': usd('USDC'),
+      '0xdac17f958d2ee523a2206206994597c13d831ec7': usd('USDT'),
+    },
+  },
+  10: {
+    name: 'Optimism',
+    explorer: 'https://optimistic.etherscan.io',
+    rpcEnv: 'OPTIMISM_RPC_URL',
+    spokePool: '0x6f26bf09b1c792e3228e5467807a900a503c0281',
+    tokens: {
+      '0x0b2c639c533813f4aa9d7837caf62653d097ff85': usd('USDC'),
+      '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58': usd('USDT'),
+      '0x01bff41798a0bcf287b996046ca68b395dbc1071': usd('USDT0'),
+    },
+  },
+  56: {
+    name: 'BNB Chain',
+    explorer: 'https://bscscan.com',
+    rpcEnv: 'BSC_RPC_URL',
+    spokePool: '0x4e8e101924ede233c13e2d8622dc8aed2872d505',
+    tokens: {
+      '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d': usd('USDC', 18),
+      '0x55d398326f99059ff775485246999027b3197955': usd('USDT', 18),
+    },
+  },
+  137: {
+    name: 'Polygon',
+    explorer: 'https://polygonscan.com',
+    rpcEnv: 'POLYGON_RPC_URL',
+    spokePool: '0x9295ee1d8c5b022be115a2ad3c30c72e34e7f096',
+    tokens: {
+      '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': usd('USDC'),
+      '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': usd('USDT0'),
+    },
+  },
+  8453: {
+    name: 'Base',
+    explorer: 'https://basescan.org',
+    rpcEnv: 'BASE_RPC_URL',
+    spokePool: '0x09aea4b2242abc8bb4bb78d537a67a245a7bec64',
+    tokens: { '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': usd('USDC') },
+  },
+  42161: {
+    name: 'Arbitrum',
+    explorer: 'https://arbiscan.io',
+    rpcEnv: 'ARBITRUM_RPC_URL',
+    spokePool: '0xe35e9842fceaca96570b734083f4a58e8f7c5f2a',
+    tokens: {
+      '0xaf88d065e77c8cc2239327c5edb3a432268e5831': usd('USDC'),
+      '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': usd('USDT0'),
+    },
+  },
+}
+
+function usd(symbol: string, decimals = 6) {
+  return { symbol, decimals }
+}
