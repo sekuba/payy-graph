@@ -42,6 +42,8 @@ export function walkPath(db: Db, burn: TxnRow): Path {
   const consumed = new Set<string>()
   let origin: PathOrigin = { type: 'limit' }
   let txn: TxnRow | undefined = burn
+  /** the note the walk followed into `txn` */
+  let followed: NoteRow | undefined
 
   const push = (t: TxnRow) => {
     steps.push(t)
@@ -67,6 +69,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
       push(txn)
       for (const t of rejoin.branches) push(t)
       txn = rejoin.split
+      followed = undefined
       continue
     }
     push(txn)
@@ -81,6 +84,7 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     }
     const previous = inputs[0]
     if (!previous?.created_tx) break
+    followed = previous
     txn = getTxn(db, previous.created_tx)
   }
 
@@ -117,6 +121,11 @@ export function walkPath(db: Db, burn: TxnRow): Path {
     }
   }
   const bounds = inferWithBatches(db, closure)
+  // what the migrated note held follows from what the wallet did with it
+  if (origin.type === 'migration' && followed) {
+    const b = bounds.get(followed.commitment)
+    if (b) origin = { ...origin, value: b.value, min: b.min, max: b.max }
+  }
 
   const hops = released
     .map(({ txn, notes }) => hopOf(db, txn, notes[0], bounds))

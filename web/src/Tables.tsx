@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Deposit, Withdrawal } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { date, l1TxUrl, payyTxUrl, shortHex, usdc } from './format'
+import { date, FRONTED, l1TxUrl, payyTxUrl, shortHex, usdc } from './format'
 
 /** Rows shown before "show all" */
 const ROWS = 10
@@ -114,7 +114,7 @@ export function WithdrawalTable({
             <td className="py-1">
               <Address address={w.recipient} chain={w.chain} full />
               {w.substituted && (
-                <span className="chip ml-2" title="paid early by Payy">
+                <span className="chip ml-2" title={FRONTED}>
                   fronted
                 </span>
               )}

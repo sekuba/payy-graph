@@ -116,6 +116,10 @@ button.toggle.on {
   color: var(--ink);
   background: var(--wash);
 }
+.help {
+  cursor: help;
+  text-decoration: underline dotted;
+}
 .name {
   font-weight: 500;
 }
@@ -127,18 +131,18 @@ button.toggle.on {
   margin-right: 6px;
   vertical-align: 1px;
 }
-.flow {
-  display: grid;
-  gap: 2px;
-}
-.flow-label {
-  display: inline-block;
-  width: 2.5em;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
 td + td,
 th + th {
   padding-left: 12px;
+}
+.flow td {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-left: 0;
+}
+.flow-label {
+  width: 3em;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

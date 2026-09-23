@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Destination, Path, PathHop } from '../../src/graph/types'
 import { CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { date, payyTxUrl, shortHex, usdc } from './format'
+import { date, FRONTED, payyTxUrl, shortHex, usdc } from './format'
 
 /** Rows of a long history shown before "show all" */
 const INITIAL_ROWS = 12
@@ -33,7 +33,14 @@ export function PathPanel({ path }: { path: Path }) {
         <span className="text-xs" style={{ color: 'var(--muted)' }}>
           {date(w.time)}
           {w.chain ? ` · ${CHAINS[w.chain].name}` : ' · pending'}
-          {w.substituted ? ' · fronted by Payy' : ''}
+          {w.substituted && (
+            <>
+              {' · '}
+              <span className="help" title={FRONTED}>
+                paid early by Payy
+              </span>
+            </>
+          )}
         </span>
       </div>
       <Flow path={path} />
@@ -110,8 +117,12 @@ function Row({ hop, gap }: { hop: PathHop; gap?: React.ReactNode }) {
   )
 }
 
-/** What came in and what went out along this history, in one line each */
+/**
+ * What came in and what went out along this history, one line per kind,
+ * with the dates they span
+ */
 function Flow({ path }: { path: Path }) {
+  const o = path.origin
   const deposits = path.hops.filter((h) => h.kind === 'deposit')
   const withdrawals = path.hops.filter((h) => h.kind === 'withdrawal')
   const card = path.hops.filter((h) => h.out?.destination.type === 'card')
@@ -126,93 +137,134 @@ function Flow({ path }: { path: Path }) {
   )
   const sum = (hops: PathHop[]) =>
     hops.reduce((a, h) => a + (h.amount ?? h.out?.value ?? 0), 0)
-  const inItems: React.ReactElement[] = []
-  if (path.origin.type === 'migration') {
-    inItems.push(
-      <span key="m">
-        <b>migrated balance</b> from the previous Payy chain (amount hidden)
-      </span>,
-    )
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+  const ins: Item[] = []
+  if (o.type === 'migration') {
+    ins.push({
+      key: 'migration',
+      what: 'Migrated balance',
+      amount:
+        o.value !== undefined
+          ? usdc(o.value)
+          : o.min
+            ? `≥ ${usdc(o.min)}`
+            : 'hidden',
+      note:
+        o.value === undefined && o.min
+          ? 'exact amount hidden; the minimum follows from what was spent'
+          : undefined,
+      hops: [{ time: o.time }],
+    })
   }
-  if (path.origin.type === 'merge') {
-    inItems.push(<span key="merge">notes from another history</span>)
+  if (o.type === 'merge') {
+    ins.push({
+      key: 'merge',
+      what: 'Notes from another history',
+      hops: [{ time: o.time }],
+    })
   }
   if (deposits.length > 0) {
-    inItems.push(
-      <span key="d">
-        <b>
-          {deposits.length === 1 ? '1 deposit' : `${deposits.length} deposits`}
-        </b>{' '}
-        <span className="mono">{usdc(sum(deposits))}</span>
-      </span>,
-    )
+    ins.push({
+      key: 'deposits',
+      what: count(deposits.length, 'deposit'),
+      amount: usdc(sum(deposits)),
+      hops: deposits,
+    })
   }
-  const outItems: React.ReactElement[] = []
+  const outs: Item[] = []
   if (card.length > 0) {
-    outItems.push(
-      <span key="c">
-        <b>
-          {card.length} card payment{card.length === 1 ? '' : 's'}
-        </b>
-        {recurring.length > 0 && `, ${recurring.length} monthly`}
-        {exact.length > 0 ? (
-          <>
-            , {exact.length} known{' '}
-            <span className="mono">{usdc(sum(exact))}</span>
-          </>
-        ) : (
-          ' (amounts hidden)'
-        )}
-      </span>,
-    )
+    outs.push({
+      key: 'card',
+      what: count(card.length, 'card payment'),
+      amount:
+        exact.length === card.length
+          ? usdc(sum(exact))
+          : exact.length > 0
+            ? `${usdc(sum(exact))} known`
+            : 'hidden',
+      note: [
+        recurring.length > 0 && `${recurring.length} monthly`,
+        exact.length < card.length && 'each at most its batch total',
+      ]
+        .filter(Boolean)
+        .join(', '),
+      hops: card,
+    })
   }
   if (transfers.length > 0) {
-    outItems.push(
-      <span key="t">
-        <b>
-          {transfers.length} transfer{transfers.length === 1 ? '' : 's'}
-        </b>{' '}
-        to other wallets
-      </span>,
-    )
+    outs.push({
+      key: 'transfers',
+      what: count(transfers.length, 'transfer'),
+      note: 'to other wallets',
+      hops: transfers,
+    })
   }
   if (withdrawals.length > 0) {
-    outItems.push(
-      <span key="w">
-        <b>
-          {withdrawals.length === 1
-            ? '1 withdrawal'
-            : `${withdrawals.length} withdrawals`}
-        </b>{' '}
-        <span className="mono">{usdc(sum(withdrawals))}</span>
-      </span>,
-    )
+    outs.push({
+      key: 'withdrawals',
+      what: count(withdrawals.length, 'withdrawal'),
+      amount: usdc(sum(withdrawals)),
+      hops: withdrawals,
+    })
   }
   return (
-    <div className="flow text-sm">
-      <div>
-        <span className="flow-label" style={{ color: 'var(--deposit)' }}>
-          in
-        </span>
-        {join(inItems)}
-      </div>
-      <div>
-        <span className="flow-label" style={{ color: 'var(--withdrawal)' }}>
-          out
-        </span>
-        {join(outItems)}
-      </div>
-    </div>
+    <table className="flow text-sm">
+      <tbody>
+        <FlowRows label="in" color="var(--deposit)" items={ins} />
+        <FlowRows label="out" color="var(--withdrawal)" items={outs} />
+      </tbody>
+    </table>
   )
 }
 
-/** Items (with keys) separated by dots */
-function join(items: React.ReactElement[]): React.ReactNode {
-  if (items.length === 0)
-    return <span style={{ color: 'var(--muted)' }}>–</span>
-  return items.flatMap((item, i) =>
-    i === 0 ? [item] : [<span key={`${item.key}-dot`}> · </span>, item],
-  )
+interface Item {
+  key: string
+  what: string
+  /** USDC, or why there is no figure */
+  amount?: string
+  note?: string
+  hops: { time: number }[]
+}
+
+function FlowRows({
+  label,
+  color,
+  items,
+}: {
+  label: string
+  color: string
+  items: Item[]
+}) {
+  if (items.length === 0) return null
+  return items.map((item, i) => {
+    const first = item.hops[0]?.time
+    const last = item.hops[item.hops.length - 1]?.time
+    const day = (t: number) => date(t).slice(0, 10)
+    return (
+      <tr key={item.key}>
+        <td className="flow-label" style={{ color }}>
+          {i === 0 ? label : ''}
+        </td>
+        <td className="whitespace-nowrap pr-3">{item.what}</td>
+        <td className="mono whitespace-nowrap pr-3 text-right">
+          {item.amount}
+        </td>
+        <td
+          className="mono whitespace-nowrap pr-3 text-xs"
+          style={{ color: 'var(--muted)' }}
+        >
+          {first !== undefined &&
+            (last !== undefined && day(last) !== day(first)
+              ? `${day(first)} – ${day(last)}`
+              : day(first))}
+        </td>
+        <td className="text-xs" style={{ color: 'var(--muted)' }}>
+          {item.note}
+        </td>
+      </tr>
+    )
+  })
 }
 
 function Origin({ path }: { path: Path }) {

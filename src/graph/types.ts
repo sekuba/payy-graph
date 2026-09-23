@@ -141,7 +141,15 @@ export interface PathHop {
 
 export type PathOrigin =
   | { type: 'deposit'; amount: number; time: number; deposit?: Deposit }
-  | { type: 'migration'; time: number; distribution?: Migration }
+  | {
+      type: 'migration'
+      time: number
+      distribution?: Migration
+      /** what the migrated note held, as far as the history determines it */
+      value?: number
+      min?: number
+      max?: number
+    }
   | { type: 'merge'; time: number }
   | { type: 'limit' }
 

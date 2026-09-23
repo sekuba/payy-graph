@@ -18,3 +18,7 @@ export function l1AddressUrl(chain: ChainId, address: string): string {
 export function payyTxUrl(hash: string): string {
   return `${PAYY_EXPLORER_URL}/transactions/${hash}`
 }
+
+/** What a fronted withdrawal is, for tooltips */
+export const FRONTED =
+  "Paid out early by Payy's burn substitutor from its own funds, before the burn was settled on L1; the settlement refunded the substitutor later."
