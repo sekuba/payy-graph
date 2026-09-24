@@ -40,7 +40,7 @@
     --brand: #db8bf7;
     --negative: #ff5d5d;
     --wash: rgba(255, 255, 255, 0.06);
-    --backdrop-opacity: 0.14;
+    --backdrop-opacity: 0.12;
   }
 }
 
@@ -67,6 +67,15 @@ body::after {
   background: url("./kraken.webp") center / cover no-repeat;
   opacity: var(--backdrop-opacity);
   pointer-events: none;
+}
+/* A tall screen shows a narrow strip of the picture; center it on the
+   kraken's eye, 52.6% across, not on the picture's middle. Covered by
+   height, the picture is 1672/941 of it wide, so the eye is 0.026 of that
+   (4.6vh) right of the middle. */
+@media (orientation: portrait) {
+  body::after {
+    background-position: calc(50% - 4.6vh) center;
+  }
 }
 a {
   color: inherit;
