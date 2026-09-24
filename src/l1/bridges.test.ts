@@ -1,5 +1,6 @@
 import { expect } from 'earl'
 import { openDb } from '../db'
+import { identityEdges } from '../graph/identity'
 import { addressSummary, bridgeOf } from '../graph/queries'
 import { insertTxns } from '../payy/indexer'
 import { ACROSS, CHAINS, ORIGIN_CHAINS, TOPICS } from '../protocol'
@@ -91,6 +92,8 @@ const ethereum = {
 /** Base at one block per second, block 1 at time 1 */
 const base = {
   getBlockNumber: async () => 2000,
+  getCodes: async (addresses: string[]) =>
+    new Map(addresses.map((a) => [a, '0x'])),
   getBlockTimestamps: async (blocks: number[]) =>
     new Map(blocks.map((b) => [b, b])),
   getLogs: async (f: LogFilter) => {
@@ -98,6 +101,17 @@ const base = {
       // an earlier payment, then the one that is bridged
       {
         ...transfer(USER, BASE_ADDRESS, 1_000_000n, 200, '0xold'),
+        address: BASE_USDC,
+      },
+      // the previous bridge: what came in before it is not this one's
+      {
+        ...transfer(
+          BASE_ADDRESS,
+          SPOKE_PERIPHERY,
+          1_000_000n,
+          500,
+          '0xearlier',
+        ),
         address: BASE_USDC,
       },
       {
@@ -152,6 +166,13 @@ describe(matchFills.name, () => {
     expect(bridgeOf(db, 'ethereum', 'mh')?.depositor).toEqual(BASE_ADDRESS)
 
     expect(await findFunders(db, new Map([[8453, base]]))).toEqual(1)
+    // only the payment since the previous transfer out
+    expect(
+      db
+        .prepare('select payer, tx, kind from bridge_payer')
+        .all()
+        .map((r) => ({ ...r })),
+    ).toEqual([{ payer: USER, tx: '0xpay', kind: 'eoa' }])
     expect(bridgeOf(db, 'ethereum', 'mh')).toEqual({
       via: 'Across',
       chain: 8453,
@@ -190,5 +211,33 @@ describe(addressSummary.name, () => {
     expect(addressSummary(db, USER).deposits.map((d) => d.txHash)).toEqual([
       'mint',
     ])
+  })
+})
+
+describe(identityEdges.name, () => {
+  it('leaves out payers that paid more than two addresses', () => {
+    const db = history()
+    const addDeposit = db.prepare(
+      `insert into deposit (chain, mint_hash, block, tx, log_index, time, depositor, amount)
+       values ('ethereum', ?, 100, ?, 0, 1000, ?, 1)`,
+    )
+    const addFunding = db.prepare(
+      `insert into bridge_in (chain, mint_hash, fund_from, fund_kind, fund_tx, fund_sender, direct_checked)
+       values ('ethereum', ?, ?, ?, ?, ?, 1)`,
+    )
+    // an exchange pays three users; a user pays their own deposit address;
+    // a router pays one, sent by the user who swapped
+    for (const [i, from, kind, sender] of [
+      [1, '0xexchange', 'eoa', '0xexchange'],
+      [2, '0xexchange', 'eoa', '0xexchange'],
+      [3, '0xexchange', 'eoa', '0xexchange'],
+      [4, '0xalice', 'eoa', '0xalice'],
+      [5, '0xrouter', 'contract', '0xbob'],
+    ] as const) {
+      addDeposit.run(`m${i}`, `0xt${i}`, `0xd${i}`)
+      addFunding.run(`m${i}`, from, kind, `0xf${i}`, sender)
+    }
+    const edges = identityEdges(db).map((e) => `${e.a}>${e.b}`)
+    expect(edges).toEqual(['0xalice>0xd4', '0xbob>0xd5'])
   })
 })

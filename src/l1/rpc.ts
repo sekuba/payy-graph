@@ -110,6 +110,22 @@ export class JsonRpc {
     return result
   }
 
+  /** The sender of each transaction, batched */
+  async getTxSenders(txs: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>()
+    for (let i = 0; i < txs.length; i += 50) {
+      const batch = txs.slice(i, i + 50)
+      const found = await this.batch<{ from: string } | null>(
+        batch.map((t) => ({ method: 'eth_getTransactionByHash', params: [t] })),
+      )
+      batch.forEach((t, j) => {
+        const from = found[j]?.from
+        if (from) result.set(t, from.toLowerCase())
+      })
+    }
+    return result
+  }
+
   /** Deployed code of many addresses, batched ('0x' for an EOA) */
   async getCodes(addresses: string[]): Promise<Map<string, string>> {
     const result = new Map<string, string>()

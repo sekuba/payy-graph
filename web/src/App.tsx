@@ -8,6 +8,7 @@ import type {
 } from '../../src/graph/types'
 import { Address } from './Address'
 import { api, type Direction } from './api'
+import { OwnerNote } from './Bridge'
 import { usdc } from './format'
 import { GraphView } from './GraphView'
 import { Live } from './Live'
@@ -378,12 +379,39 @@ function Links({ summary }: { summary: AddressSummary }) {
     )
   const by = line('withdrawals funded by', summary.fundedBy)
   const to = line('deposits funded withdrawals to', summary.funded)
-  if (!by && !to) return null
+  const group = (summary.addresses ?? []).length > 0 && (
+    <div className="text-sm">
+      <span style={{ color: 'var(--muted)' }}>its Payy addresses </span>
+      {(summary.addresses ?? []).slice(0, 6).map((a, i) => (
+        <span key={a}>
+          {i > 0 && <span style={{ color: 'var(--muted)' }}> · </span>}
+          <Address address={a} />
+        </span>
+      ))}
+      {(summary.addresses ?? []).length > 6 && (
+        <span style={{ color: 'var(--muted)' }}>
+          {' '}
+          and {(summary.addresses ?? []).length - 6} more
+        </span>
+      )}
+      {summary.owner?.paid && (
+        <span style={{ color: 'var(--muted)' }}>
+          {' · '}
+          <OwnerNote
+            addresses={summary.addresses ?? []}
+            root={summary.owner.address}
+          />
+        </span>
+      )}
+    </div>
+  )
+  if (!by && !to && !group) return null
   return (
     <div
       className="mb-3 grid gap-1"
       title="From the traced withdrawals: a sender counts when its deposits provably supplied at least a cent of a withdrawal"
     >
+      {group}
       {by}
       {to}
     </div>

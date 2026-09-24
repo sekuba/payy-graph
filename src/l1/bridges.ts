@@ -1,4 +1,5 @@
-import { all, type Db, transaction } from '../db'
+import { all, type Db, getSync, one, setSync, transaction } from '../db'
+import { deriveIdentities } from '../graph/identity'
 import { log, sleep } from '../log'
 import {
   ACROSS,
@@ -20,12 +21,17 @@ import type { JsonRpc, Log, ReceiptLog } from './rpc'
  * 2. On the origin chain, where an RPC is configured: the Across deposit the
  *    fill names (FundsDeposited, by its deposit id), what the origin
  *    depositor paid into it (often USDT, swapped by Across's periphery),
- *    and the last transfer of that token into the origin depositor before
- *    it, within an hour. The Payy app keeps one such address per user and
- *    chain, and the transfer into it is the user paying in.
+ *    and every transfer of that token into the origin depositor since its
+ *    previous transfer out (looking back at most PAYER_LOOKBACK): who paid
+ *    it. The Payy app keeps one such address per user.
+ *
+ * Deposits that did not come through a bridge get the transfer that funded
+ * the deposit address just before, and the sender of that transaction:
+ * when a swap router paid the deposit address, that is who swapped.
  *
  * Deposits are checked newest first, so new ones are covered at once and the
- * history is filled in batch by batch.
+ * history is filled in batch by batch. Who belongs together is derived from
+ * all of it afterwards (src/graph/identity.ts).
  */
 
 /** How far before a deposit its funding transfer is looked for */
@@ -33,11 +39,20 @@ const WINDOW_BLOCKS: Record<ChainId, number> = {
   ethereum: 300,
   polygon: 1_800,
 }
-/** How long before bridging the origin depositor's funding is looked for */
-const FUNDING_WINDOW_SECONDS = 3_600
+/** How long before a fill its Across deposit is looked for */
+const BRIDGE_WINDOW_SECONDS = 3_600
+/** How long before bridging payments into the origin address are looked for */
+const PAYER_LOOKBACK_SECONDS = 3 * 24 * 3_600
+/** Bumped when the payer lookup changes: every bridged deposit again */
+const PAYERS_VERSION = 2
+const PAYERS_KEY = 'bridge_payers_version'
+/** Set once every deposit's funding has been looked up */
+export const FUNDING_DONE_KEY = 'bridge_funding_done'
+/** How often identities are derived again while new data comes in */
+const IDENTITY_MS = 10 * 60_000
 /** Deposits per getLogs request (one topic alternative each) */
 const BATCH = 50
-const FUNDERS_PER_ROUND = 25
+const FUNDERS_PER_ROUND = 40
 const POLL_MS = 120_000
 
 interface DepositRow {
@@ -75,11 +90,24 @@ export async function syncBridges(
   origins: Map<number, JsonRpc>,
   options: { follow: boolean },
 ): Promise<void> {
+  if (Number(getSync(db, PAYERS_KEY) ?? 1) < PAYERS_VERSION) {
+    transaction(db, () => {
+      db.exec(
+        'update bridge_in set funder_checked = 0 where fill_tx is not null',
+      )
+      db.exec('delete from bridge_payer')
+      setSync(db, PAYERS_KEY, String(PAYERS_VERSION))
+      setSync(db, FUNDING_DONE_KEY, '0')
+    })
+    log('bridges', { payers: 'looked up again', version: PAYERS_VERSION })
+  }
+  let derived = 0
   for (;;) {
     let done = 0
     try {
       for (const [chain, rpc] of Object.entries(settlement)) {
         done += await matchFills(db, chain as ChainId, rpc)
+        done += await findDirectFunders(db, chain as ChainId, rpc)
       }
       done += await findFunders(db, origins)
     } catch (e) {
@@ -88,10 +116,39 @@ export async function syncBridges(
       await sleep(POLL_MS)
       continue
     }
+    const complete = done === 0 && pending(db, origins) === 0
+    if (complete && getSync(db, FUNDING_DONE_KEY) !== '1') {
+      setSync(db, FUNDING_DONE_KEY, '1')
+      derived = 0
+    }
+    if ((done > 0 || complete) && Date.now() - derived > IDENTITY_MS) {
+      deriveIdentities(db)
+      derived = Date.now()
+    }
     if (done > 0) continue
     if (!options.follow) break
     await sleep(POLL_MS)
   }
+}
+
+/** Deposits whose funding is still to be looked up */
+function pending(db: Db, origins: Map<number, JsonRpc>): number {
+  const chains = [...origins.keys()]
+  const bridged = chains.length
+    ? (one<{ n: number }>(
+        db,
+        `select count(*) as n from bridge_in where fill_tx is not null
+         and funder_checked = 0
+         and origin_chain in (${chains.map(() => '?').join(', ')})`,
+        ...chains,
+      )?.n ?? 0)
+    : 0
+  const direct =
+    one<{ n: number }>(
+      db,
+      'select count(*) as n from bridge_in where fill_tx is null and direct_checked = 0',
+    )?.n ?? 0
+  return bridged + direct
 }
 
 /** Step 1 for one batch of unchecked deposits; returns how many it checked */
@@ -210,6 +267,13 @@ export async function findFunders(
        funder_time = ?, funder_checked = 1
      where chain = ? and mint_hash = ?`,
   )
+  const clear = db.prepare(
+    'delete from bridge_payer where chain = ? and mint_hash = ?',
+  )
+  const insert = db.prepare(
+    `insert into bridge_payer (chain, mint_hash, payer, tx, amount, time, kind)
+     values (?, ?, ?, ?, ?, ?, ?) on conflict do nothing`,
+  )
   // the chains in parallel, each chain's rows in order (newest first, so
   // that the block clock mostly searches near points it already knows)
   const results = await Promise.all(
@@ -233,23 +297,45 @@ export async function findFunders(
   transaction(db, () => {
     for (const [row, r] of results.flat()) {
       checked++
-      if (r?.funder) found++
+      // the latest payment stands for the others where one is shown
+      const latest = r?.payers.at(-1)
+      if (latest) found++
       update.run(
         r?.originTx ?? null,
         r?.originTime ?? null,
         r?.token ?? null,
         r?.amount ?? null,
-        r?.funder ?? null,
-        r?.funderTx ?? null,
-        r?.funderAmount ?? null,
-        r?.funderTime ?? null,
+        latest?.payer ?? null,
+        latest?.tx ?? null,
+        latest?.amount ?? null,
+        latest?.time ?? null,
         row.chain,
         row.mint_hash,
       )
+      clear.run(row.chain, row.mint_hash)
+      for (const p of r?.payers ?? []) {
+        insert.run(
+          row.chain,
+          row.mint_hash,
+          p.payer,
+          p.tx,
+          p.amount,
+          p.time,
+          p.kind,
+        )
+      }
     }
   })
   if (rows.length > 0) log('bridge funders', { checked, found })
   return checked
+}
+
+interface Payer {
+  payer: string
+  tx: string
+  amount: string
+  time: number
+  kind: CodeKind
 }
 
 interface Funding {
@@ -257,10 +343,7 @@ interface Funding {
   originTime: number
   token?: string
   amount?: string
-  funder?: string
-  funderTx?: string
-  funderAmount?: string
-  funderTime?: number
+  payers: Payer[]
 }
 
 async function funding(
@@ -272,7 +355,7 @@ async function funding(
   const depositor = row.origin_depositor ?? ''
   if (!origin || !row.deposit_id) return undefined
   const clock = clockOf(rpc)
-  const fromBlock = (await clock.bracket(row.time - FUNDING_WINDOW_SECONDS))[0]
+  const fromBlock = (await clock.bracket(row.time - BRIDGE_WINDOW_SECONDS))[0]
   const toBlock = (await clock.bracket(row.time + 60))[1]
   const [deposit] = await rpc.getLogs({
     address: origin.spokePool,
@@ -299,36 +382,144 @@ async function funding(
   const base: Funding = {
     originTx: deposit.transactionHash,
     originTime: times.get(deposit.blockNumber) ?? 0,
+    payers: [],
   }
   if (!paid) return base
   const token = paid.address.toLowerCase()
-  const into = await rpc.getLogs({
-    address: token,
-    topics: [TOPICS.Transfer, null, pad(depositor)],
-    fromBlock,
-    toBlock: deposit.blockNumber,
-  })
-  const funder = into
-    .filter(
-      (l) =>
-        l.blockNumber < deposit.blockNumber ||
-        l.logIndex < Number(paid.logIndex),
-    )
-    .at(-1)
   const result = { ...base, token, amount: BigInt(paid.data).toString() }
-  if (!funder) return result
-  const funderTime =
-    (await rpc.getBlockTimestamps([funder.blockNumber])).get(
-      funder.blockNumber,
-    ) ?? 0
-  if (result.originTime - funderTime > FUNDING_WINDOW_SECONDS) return result
+  // payments in since the previous transfer out, before this one
+  const since = (
+    await clock.bracket(result.originTime - PAYER_LOOKBACK_SECONDS)
+  )[0]
+  const before = (l: Log) =>
+    l.transactionHash !== deposit.transactionHash &&
+    (l.blockNumber < deposit.blockNumber ||
+      (l.blockNumber === deposit.blockNumber &&
+        l.logIndex < Number(paid.logIndex)))
+  const [into, out] = await Promise.all([
+    rpc.getLogs({
+      address: token,
+      topics: [TOPICS.Transfer, null, pad(depositor)],
+      fromBlock: since,
+      toBlock: deposit.blockNumber,
+    }),
+    rpc.getLogs({
+      address: token,
+      topics: [TOPICS.Transfer, pad(depositor), null],
+      fromBlock: since,
+      toBlock: deposit.blockNumber,
+    }),
+  ])
+  const last = out.filter(before).at(-1)
+  const after = (l: Log) =>
+    !last ||
+    l.blockNumber > last.blockNumber ||
+    (l.blockNumber === last.blockNumber && l.logIndex > last.logIndex)
+  const payments = into.filter((l) => before(l) && after(l))
+  if (payments.length === 0) return result
+  const [stamps, codes] = await Promise.all([
+    rpc.getBlockTimestamps([...new Set(payments.map((l) => l.blockNumber))]),
+    rpc.getCodes([...new Set(payments.map((l) => topicAddress(l.topics[1])))]),
+  ])
   return {
     ...result,
-    funder: topicAddress(funder.topics[1]),
-    funderTx: funder.transactionHash,
-    funderAmount: BigInt(funder.data).toString(),
-    funderTime,
+    payers: payments.map((l) => {
+      const payer = topicAddress(l.topics[1])
+      return {
+        payer,
+        tx: l.transactionHash,
+        amount: BigInt(l.data).toString(),
+        time: stamps.get(l.blockNumber) ?? 0,
+        kind: codeKind(codes.get(payer)),
+      }
+    }),
   }
+}
+
+export type CodeKind = 'eoa' | 'delegated' | 'contract'
+
+/** An EOA has no code, an EIP-7702 account delegates with 0xef0100 */
+function codeKind(code: string | undefined): CodeKind {
+  if (!code || code === '0x') return 'eoa'
+  return code.startsWith('0xef0100') ? 'delegated' : 'contract'
+}
+
+/**
+ * For deposits that did not come through a bridge: the last USDC transfer
+ * into the deposit address before the deposit, its sender's code, and the
+ * sender of its transaction (who swapped, when a router paid)
+ */
+export async function findDirectFunders(
+  db: Db,
+  chain: ChainId,
+  rpc: JsonRpc,
+): Promise<number> {
+  const deposits = all<DepositRow>(
+    db,
+    `select d.* from deposit d
+     join bridge_in b on b.chain = d.chain and b.mint_hash = d.mint_hash
+     where d.chain = ? and b.fill_tx is null and b.direct_checked = 0
+     order by d.block desc limit ?`,
+    chain,
+    BATCH,
+  )
+  if (deposits.length === 0) return 0
+  const window = WINDOW_BLOCKS[chain]
+  const incoming = await rpc.getLogs({
+    address: CHAINS[chain].usdc,
+    topics: [
+      TOPICS.Transfer,
+      null,
+      [...new Set(deposits.map((d) => pad(d.depositor)))],
+    ],
+    fromBlock: Math.min(...deposits.map((d) => d.block)) - window,
+    toBlock: Math.max(...deposits.map((d) => d.block)),
+  })
+  const funding = new Map<string, Log>()
+  for (const d of deposits) {
+    const last = incoming
+      .filter(
+        (l) =>
+          topicAddress(l.topics[2]) === d.depositor &&
+          l.transactionHash !== d.tx &&
+          l.blockNumber >= d.block - window &&
+          (l.blockNumber < d.block ||
+            (l.blockNumber === d.block && l.logIndex < d.log_index)),
+      )
+      .at(-1)
+    if (last) funding.set(d.mint_hash, last)
+  }
+  const found = [...funding.values()]
+  const [codes, senders] = await Promise.all([
+    rpc.getCodes([...new Set(found.map((l) => topicAddress(l.topics[1])))]),
+    rpc.getTxSenders([...new Set(found.map((l) => l.transactionHash))]),
+  ])
+  const update = db.prepare(
+    `update bridge_in set fund_from = ?, fund_kind = ?, fund_tx = ?,
+       fund_sender = ?, fund_amount = ?, direct_checked = 1
+     where chain = ? and mint_hash = ?`,
+  )
+  transaction(db, () => {
+    for (const d of deposits) {
+      const f = funding.get(d.mint_hash)
+      const from = f && topicAddress(f.topics[1])
+      update.run(
+        from ?? null,
+        from ? codeKind(codes.get(from)) : null,
+        f?.transactionHash ?? null,
+        f ? (senders.get(f.transactionHash) ?? null) : null,
+        f ? BigInt(f.data).toString() : null,
+        chain,
+        d.mint_hash,
+      )
+    }
+  })
+  log(`${chain} direct funders`, {
+    checked: deposits.length,
+    found: funding.size,
+    down_to: deposits.at(-1)?.block,
+  })
+  return deposits.length
 }
 
 /** EVM chain ids of the settlement chains, the destinations of the fills */

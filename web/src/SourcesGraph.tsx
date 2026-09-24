@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { senderOf } from '../../src/graph/senders'
 import type { Deposit, Graph, Sender, Withdrawal } from '../../src/graph/types'
 import { useAddressText } from './Address'
 import { originName } from './Bridge'
@@ -74,10 +75,6 @@ export function SourcesGraph({
   )
 }
 
-function senderOf(d: Deposit): string {
-  return d.bridge?.funder?.address ?? d.bridge?.depositor ?? d.depositor
-}
-
 /** The sources to draw by sender, largest share first */
 function sourcesOf(
   graph: Graph,
@@ -118,7 +115,7 @@ function sourcesOf(
         g.deposits === 1
           ? `Deposit ${usdc(g.amount)}`
           : `${g.deposits} deposits · ${usdc(g.amount)}`,
-      detail: `${text(g.address)}${g.chain ? ` · ${originName(g.chain)}` : ''} · ${day(g.first) === day(g.last) ? day(g.first) : `${day(g.first)} – ${day(g.last)}`}`,
+      detail: `${text(g.address)}${g.chain ? ` · ${originName(g.chain)}` : ''}${g.paid ? ' · grouped by who paid in' : ''} · ${day(g.first) === day(g.last) ? day(g.first) : `${day(g.first)} – ${day(g.last)}`}`,
       min: g.share.min,
       max: g.share.max,
       onClick: only ? () => onSelect(only.txHash) : undefined,

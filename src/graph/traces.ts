@@ -1,10 +1,12 @@
 import { all, type Db, getSync, one, setSync, transaction } from '../db'
 import { DUST } from '../format'
+import { FUNDING_DONE_KEY } from '../l1/bridges'
 import { log } from '../log'
 import { CARD_SETTLEMENT, type ChainId, TxKind } from '../protocol'
 import { collect, type TxnRow } from './closure'
 import { walkPath } from './path'
-import { DEFAULT_LIMIT, depositOf } from './queries'
+import { DEFAULT_LIMIT, depositOf, ownerOf } from './queries'
+import { sameAs } from './senders'
 import type { Trace } from './types'
 
 /**
@@ -26,14 +28,19 @@ const VERSION_KEY = 'traces_version'
  * Bumped when the walk changes what it finds, with the origins that are
  * traced again. 2: merges with a note of less than a cent are walked
  * through. 3: the walk goes ten times further back. 4: the sender behind
- * most of the withdrawal is stored, for every withdrawal.
+ * most of the withdrawal is stored, for every withdrawal. 5: senders are
+ * owners (src/graph/identity.ts); traced again once the funding of every
+ * deposit has been looked up, so that the owners are complete.
  */
-const VERSION = 4
+const VERSION = 5
 const RETRACE: Record<number, string[]> = {
   2: ['merge', 'limit'],
   3: ['limit'],
   4: ['deposit', 'merge', 'limit', 'migration'],
+  5: ['deposit', 'merge', 'limit', 'migration'],
 }
+/** Versions that wait for the funding backfill (src/l1/bridges.ts) */
+const NEEDS_FUNDING = 5
 
 interface TraceRow {
   burn_tx: string
@@ -52,6 +59,7 @@ interface TraceRow {
   sender_deposits: number | null
   sender_min: number | null
   sender_max: number | null
+  sender_same: string | null
 }
 
 export function traceOf(db: Db, burnTx: string): Trace | undefined {
@@ -79,6 +87,9 @@ export function fromRow(row: TraceRow): Trace {
         deposits: row.sender_deposits ?? 1,
         min: row.sender_min ?? 0,
         max: row.sender_max ?? undefined,
+        ...(row.sender_same && {
+          same: row.sender_same as 'address' | 'owner',
+        }),
       },
     }),
     depositors: row.depositors,
@@ -108,6 +119,9 @@ export function computeTrace(db: Db, burn: TxnRow): Trace {
   const o = path.origin
   const deposit = o.type === 'deposit' ? o.deposit : undefined
   const top = path.senders[0]
+  // the recipient is the sender: literally, or one of the sender's group
+  const recipient = burn.burn_addr ?? ''
+  const same = top && sameAs(top, recipient, ownerOf(db, recipient))
   const sender =
     top && top.share.min >= DUST
       ? {
@@ -116,6 +130,8 @@ export function computeTrace(db: Db, burn: TxnRow): Trace {
           deposits: top.deposits,
           min: top.share.min,
           max: top.share.max,
+          ...(same && { same }),
+          ...(top.paid && { paid: true }),
         }
       : undefined
   return {
@@ -146,18 +162,20 @@ export function deriveTraces(db: Db, budgetMs: number): void {
   const top =
     one<{ h: number | null }>(db, 'select max(height) as h from txn')?.h ?? 0
   const version = Number(getSync(db, VERSION_KEY) ?? 1)
-  if (version < VERSION) {
+  const target =
+    getSync(db, FUNDING_DONE_KEY) === '1' ? VERSION : NEEDS_FUNDING - 1
+  if (version < target) {
     const origins = new Set<string>()
-    for (let v = version + 1; v <= VERSION; v++) {
+    for (let v = version + 1; v <= target; v++) {
       for (const o of RETRACE[v] ?? []) origins.add(o)
     }
     transaction(db, () => {
       const list = [...origins].map((o) => `'${o}'`).join(', ')
       if (list) db.exec(`delete from trace where origin in (${list})`)
       setSync(db, BACKFILL_KEY, String(top))
-      setSync(db, VERSION_KEY, String(VERSION))
+      setSync(db, VERSION_KEY, String(target))
     })
-    log('traces', { version: VERSION, retracing: [...origins].join(', ') })
+    log('traces', { version: target, retracing: [...origins].join(', ') })
   }
   const done = Number(getSync(db, NEW_KEY) ?? top)
   const backfill = Number(getSync(db, BACKFILL_KEY) ?? done)
@@ -176,8 +194,9 @@ export function deriveTraces(db: Db, budgetMs: number): void {
   const insert = db.prepare(
     `insert into trace (burn_tx, height, origin, depositor, deposit_chain,
        deposit_time, deposit_amount, deposit_hops, depositors, nearest, truncated,
-       sender, sender_chain, sender_deposits, sender_min, sender_max)
-     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       sender, sender_chain, sender_deposits, sender_min, sender_max,
+       sender_same)
+     values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      on conflict (burn_tx) do nothing`,
   )
   const save = (burn: TxnRow, t: Trace) =>
@@ -198,6 +217,7 @@ export function deriveTraces(db: Db, budgetMs: number): void {
       t.sender?.deposits ?? null,
       t.sender?.min ?? null,
       t.sender?.max ?? null,
+      t.sender?.same ?? null,
     )
   const traceAll = (burns: TxnRow[]) => {
     const traces = burns.map((b) => [b, computeTrace(db, b)] as const)

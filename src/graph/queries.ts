@@ -11,7 +11,9 @@ import {
   type TxnRow,
   withSideBranches,
 } from './closure'
+import { identityOf, membersOf } from './identity'
 import { cardBatch, migrationSummary, Role } from './roles'
+import { addressesOf, senderOf } from './senders'
 import { flowInto, spreadFrom } from './sources'
 import type {
   AddressSummary,
@@ -20,6 +22,7 @@ import type {
   Deposit,
   Graph,
   Link,
+  Owner,
   Recipient,
   Resolved,
   Sender,
@@ -69,6 +72,43 @@ export function depositOf(db: Db, mint: TxnRow): Deposit | undefined {
     label: labelOf(row.depositor),
     amount: row.amount,
     bridge: bridgeOf(db, row.chain, row.mint_hash),
+    funding: fundingOf(db, row.chain, row.mint_hash),
+    owner: ownerOf(db, row.depositor),
+  }
+}
+
+/** The group an address belongs to, if the data links it to others */
+export function ownerOf(db: Db, address: string): Owner | undefined {
+  const id = identityOf(db, address)
+  return id && { address: id.root, size: id.size, paid: id.paid }
+}
+
+/** Who paid the address of a deposit that did not come through a bridge */
+export function fundingOf(
+  db: Db,
+  chain: ChainId,
+  mintHash: string,
+): Deposit['funding'] {
+  const row = one<{
+    fund_from: string | null
+    fund_kind: string | null
+    fund_tx: string | null
+    fund_sender: string | null
+  }>(
+    db,
+    `select fund_from, fund_kind, fund_tx, fund_sender from bridge_in
+     where chain = ? and mint_hash = ? and fill_tx is null`,
+    chain,
+    mintHash,
+  )
+  if (!row?.fund_from || !row.fund_tx) return undefined
+  const router = row.fund_kind === 'contract'
+  const address = router ? row.fund_sender : row.fund_from
+  if (!address) return undefined
+  return {
+    address,
+    tx: row.fund_tx,
+    ...(router && { via: row.fund_from }),
   }
 }
 
@@ -143,6 +183,7 @@ export function withdrawalOf(db: Db, burn: TxnRow): Withdrawal {
   const settled = events.find((e) => e.substitute === 0)
   const recipient = burn.burn_addr ?? ''
   return {
+    owner: ownerOf(db, recipient),
     burnHash: burn.msg_hash,
     txHash: burn.hash,
     recipient,
@@ -353,15 +394,6 @@ export function graphAround(
   }
 }
 
-/** Who sent a deposit: its sender on the other chain when bridged in */
-export function senderOf(d: Deposit): string {
-  return (
-    d.bridge?.funder?.address ??
-    d.bridge?.depositor ??
-    d.depositor
-  ).toLowerCase()
-}
-
 /** The sender of the deposit made by a mint tx, among `deposits` */
 export function senderOfTx(
   deposits: Deposit[],
@@ -379,9 +411,12 @@ export function sendersOf(
   return [...groups]
     .map(([address, share]) => {
       const own = deposits.filter((d) => senderOf(d) === address)
+      const addresses = [...new Set(own.flatMap(addressesOf))]
       return {
         address,
         chain: own[0]?.bridge?.chain,
+        ...(addresses.length > 1 && { addresses }),
+        ...(own.some((d) => d.owner?.paid) && { paid: true }),
         deposits: own.length,
         amount: own.reduce((a, d) => a + d.amount, 0),
         first: Math.min(...own.map((d) => d.time)),
@@ -422,6 +457,7 @@ export function recipientsOf(
         first: Math.min(...own.map((w) => w.time)),
         last: Math.max(...own.map((w) => w.time)),
         burnTx: own.length === 1 ? own[0]?.txHash : undefined,
+        owner: own[0]?.owner,
         share: {
           min: s.reduce((a, x) => a + x.min, 0),
           max: open ? undefined : s.reduce((a, x) => a + (x.max ?? 0), 0),
@@ -448,6 +484,10 @@ export function bySize(a: Deposit, b: Deposit): number {
  */
 export function addressSummary(db: Db, address: string): AddressSummary {
   const addr = address.toLowerCase()
+  const owner = ownerOf(db, addr)
+  // the addresses the data links to it, itself included
+  const group = owner ? membersOf(db, owner.address) : [addr]
+  const inGroup = group.map(() => '?').join(', ')
   const burns = all<TxnRow>(
     db,
     'select * from txn where kind = 3 and burn_addr = ? order by height',
@@ -458,20 +498,24 @@ export function addressSummary(db: Db, address: string): AddressSummary {
     `select txn.* from deposit
      join txn on txn.msg_hash = deposit.mint_hash and txn.kind = 2
      where deposit.mint_hash in (
-       select mint_hash from deposit where depositor = ?
-       union select mint_hash from bridge_in where funder = ?
-       union select mint_hash from bridge_in where origin_depositor = ?)
+       select mint_hash from deposit where depositor in (${inGroup})
+       union select mint_hash from bridge_in where funder in (${inGroup})
+       union select mint_hash from bridge_in where origin_depositor in (${inGroup}))
      group by txn.hash order by txn.height`,
-    addr,
-    addr,
-    addr,
+    ...group,
+    ...group,
+    ...group,
   )
   // who is linked to it, as far as the withdrawals are traced
-  const links = (sql: string) =>
-    all<Link>(db, sql, addr).filter((l) => l.address)
+  const links = (sql: string, key: string) =>
+    all<Link>(db, sql, key).filter((l) => l.address)
   return {
     address: addr,
     label: labelOf(addr),
+    ...(owner && {
+      owner,
+      addresses: group.filter((a) => a !== addr),
+    }),
     withdrawals: burns.map((b) => withdrawalOf(db, b)),
     deposits: mints.flatMap((m) => depositOf(db, m) ?? []),
     fundedBy: links(
@@ -480,6 +524,7 @@ export function addressSummary(db: Db, address: string): AddressSummary {
        from txn x join trace t on t.burn_tx = x.hash
        where x.kind = 3 and x.burn_addr = ? and t.sender is not null
        group by t.sender order by amount desc limit 8`,
+      addr,
     ),
     funded: links(
       `select x.burn_addr as address, count(*) as withdrawals,
@@ -487,6 +532,7 @@ export function addressSummary(db: Db, address: string): AddressSummary {
        from trace t join txn x on x.hash = t.burn_tx
        where t.sender = ?
        group by x.burn_addr order by amount desc limit 8`,
+      owner?.address ?? addr,
     ),
   }
 }

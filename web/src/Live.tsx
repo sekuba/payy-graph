@@ -435,7 +435,6 @@ function Row({
           <Source
             trace={e.trace}
             time={e.withdrawal.time}
-            recipient={e.withdrawal.recipient}
             amount={e.withdrawal.amount}
             sameAmount={sameDeposit(e)}
           />
@@ -549,13 +548,11 @@ function AmountMatchText({
 function Source({
   trace: t,
   time,
-  recipient,
   amount,
   sameAmount,
 }: {
   trace?: Trace
   time: number
-  recipient: string
   amount: number
   /** the source deposit also has exactly the withdrawn amount */
   sameAmount?: boolean
@@ -586,12 +583,25 @@ function Source({
             : ''}
           {t.source ? ` · ${ago(time - t.source.time)} earlier` : ''}
         </span>
-        {s.address === recipient.toLowerCase() && (
+        {s.same && (
           <span
             className="chip chip-strong ml-1"
-            title="the sender of the deposits and the recipient of the withdrawal are the same address"
+            title={
+              s.same === 'address'
+                ? 'the sender of the deposits and the recipient of the withdrawal are the same address'
+                : 'the withdrawal went to an address the data links to the sender (who paid in)'
+            }
           >
-            same address
+            same {s.same}
+          </span>
+        )}
+        {s.paid && (
+          <span
+            className="help ml-1"
+            style={{ color: 'var(--muted)' }}
+            title="the sender's deposits are grouped because one wallet paid their addresses before they deposited or bridged; that usually means it owns them, but a payment alone does not prove it"
+          >
+            · by who paid in
           </span>
         )}
         {sameAmount && (

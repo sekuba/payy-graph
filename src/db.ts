@@ -81,6 +81,33 @@ const SCHEMA = `
   create index if not exists bridge_in_funder on bridge_in(funder);
   create index if not exists bridge_in_origin on bridge_in(origin_depositor);
 
+  -- Who paid the origin address of a bridged deposit before it bridged: all
+  -- transfers of the bridged token into it since its previous transfer out
+  -- (src/l1/bridges.ts). kind: eoa, delegated (EIP-7702) or contract, from
+  -- the payer's code on the origin chain.
+  create table if not exists bridge_payer (
+    chain text not null,
+    mint_hash text not null,
+    payer text not null,
+    tx text not null,
+    amount text not null,       -- raw token units, a decimal string
+    time integer not null,
+    kind text not null,
+    primary key (chain, mint_hash, tx, payer)
+  );
+  create index if not exists bridge_payer_payer on bridge_payer(payer);
+
+  -- Addresses that belong to one owner, as far as the data links them
+  -- (src/graph/identity.ts): root is the address the owner is shown by;
+  -- paid is set when the group relies on who paid in, not only on events.
+  create table if not exists identity (
+    address text primary key,
+    root text not null,
+    size integer not null,
+    paid integer not null
+  );
+  create index if not exists identity_root on identity(root);
+
   -- L1 Burned events, as emitted (a fronted withdrawal produces two)
   create table if not exists burned (
     chain text not null,
@@ -184,7 +211,19 @@ export function openDb(path: string): Db {
 
 /** Columns added to existing tables after their first release */
 const ADDED: Record<string, Record<string, string>> = {
+  // direct deposits: the transfer that funded the deposit address just before
+  // (fund_from its sender, fund_kind that sender's code, fund_sender the
+  // sender of that transaction, which is who paid when a router sent it)
+  bridge_in: {
+    fund_from: 'text',
+    fund_kind: 'text',
+    fund_tx: 'text',
+    fund_sender: 'text',
+    fund_amount: 'text',
+    direct_checked: 'integer not null default 0',
+  },
   trace: {
+    sender_same: 'text', // 'address' or 'owner' when it is the recipient's
     sender: 'text', // the sender whose deposits provably supplied most of it
     sender_chain: 'integer', // EVM chain id it bridged from, if it did
     sender_deposits: 'integer',

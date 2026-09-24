@@ -49,3 +49,46 @@ function route(d: Deposit, b: Bridged): string {
   steps.push(`${d.depositor} deposited it into Payy, ${date(d.time)}`)
   return steps.join('\n')
 }
+
+/**
+ * Who paid a deposit address that did not come through a bridge, just
+ * before it deposited; through a router, the wallet that swapped
+ */
+export function FundingText({ deposit }: { deposit: Deposit }) {
+  const f = deposit.funding
+  if (!f) return null
+  return (
+    <span
+      className="help"
+      title={`${f.via ? `${f.via} (a contract, e.g. a swap router) sent the USDC to ${deposit.depositor} in a transaction sent by ${f.address}` : `${f.address} sent the USDC to ${deposit.depositor}`} shortly before it deposited (tx ${f.tx})`}
+    >
+      paid in by{' '}
+      <Address address={f.address} chain={deposit.chain} l1Tx={f.tx} />
+      {f.via ? ' via a contract' : ''}
+    </span>
+  )
+}
+
+/**
+ * The caveat on a group that relies on who paid in: whoever paid a user's
+ * Payy address is taken to be that user, which a payment alone does not
+ * prove (a friend can pay you too). Services are left out of it.
+ */
+export function OwnerNote({
+  addresses,
+  root,
+}: {
+  addresses: string[]
+  root: string
+}) {
+  const others = addresses.filter((a) => a !== root)
+  return (
+    <span
+      className="help"
+      style={{ color: 'var(--muted)' }}
+      title={`Grouped with ${root} because that wallet paid ${others.length ? others.join(', ') : 'these addresses'} before they deposited or bridged. That usually means it owns them, but a payment alone does not prove it. Wallets that paid many different users (exchanges, routers) are never used for this.`}
+    >
+      grouped by who paid in
+    </span>
+  )
+}

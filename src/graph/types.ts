@@ -39,9 +39,14 @@ export interface NoteEdge {
 
 /** The deposits of one sender behind withdrawals, bounded together */
 export interface Sender {
+  /** the owner's address (see Owner), or the one address */
   address: string
   /** EVM chain id the deposits were bridged from, if they were */
   chain?: number
+  /** its addresses behind these deposits, when there are several */
+  addresses?: string[]
+  /** grouping them relies on who paid in */
+  paid?: boolean
   deposits: number
   amount: number
   first: number
@@ -59,6 +64,8 @@ export interface Recipient {
   last: number
   /** the withdrawal, when there is one */
   burnTx?: string
+  /** the group the recipient belongs to, if any */
+  owner?: Owner
   /** how much of these withdrawals can have come from the deposit */
   share: Share
 }
@@ -86,6 +93,24 @@ export interface Deposit {
   share?: Share
   /** set when its USDC was bridged in from another chain just before */
   bridge?: Bridged
+  /** not bridged: who paid the deposit address just before it deposited */
+  funding?: {
+    address: string
+    tx: string
+    /** the router or contract that sent the USDC, when it was not `address` */
+    via?: string
+  }
+  /** who it belongs to, as far as the data links it (src/graph/identity.ts) */
+  owner?: Owner
+}
+
+/** A group of addresses the data links to one owner */
+export interface Owner {
+  /** the address the group is shown by */
+  address: string
+  size: number
+  /** the group relies on who paid in, not only on bridge events */
+  paid: boolean
 }
 
 /** A deposit's USDC bridged in from another chain (src/l1/bridges.ts) */
@@ -127,6 +152,8 @@ export interface Withdrawal {
   /** tx that settled the burn onchain */
   settledTx?: string
   substituted: boolean
+  /** the group the recipient belongs to, when the data links it to others */
+  owner?: Owner
   /** transactions between the focused transaction and this withdrawal */
   hops?: number
   /** how much of what it kept can end up in the focus, like `TxnNode.reach` */
@@ -278,6 +305,9 @@ export interface Graph {
 export interface AddressSummary {
   address: string
   label?: string
+  /** the group the data links it to, and the group's other addresses */
+  owner?: Owner
+  addresses?: string[]
   withdrawals: Withdrawal[]
   deposits: Deposit[]
   /** the senders whose deposits provably supplied its withdrawals */
@@ -324,6 +354,10 @@ export interface Trace {
     deposits: number
     min: number
     max?: number
+    /** the sender is the recipient: the same address, or the same owner */
+    same?: 'address' | 'owner'
+    /** grouping its deposits relies on who paid in */
+    paid?: boolean
   }
   /** distinct addresses behind the deposits in its history */
   depositors: number

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { addressesOf, sameAs, senderOf } from '../../src/graph/senders'
 import type {
   Deposit,
   Destination,
@@ -9,7 +10,7 @@ import type {
 } from '../../src/graph/types'
 import { CHAINS, ORIGIN_CHAINS } from '../../src/protocol'
 import { Address } from './Address'
-import { BridgeText, originName } from './Bridge'
+import { BridgeText, FundingText, OwnerNote, originName } from './Bridge'
 import {
   between,
   DUST,
@@ -69,11 +70,11 @@ function Link({ path }: { path: Path }) {
   const { named } = splitSenders(path)
   const sources: React.ReactNode[] = []
   let start: number | undefined
-  let from: string | undefined
+  let from: { address: string; addresses?: string[] } | undefined
   if (named.length > 0) {
     // who provably supplied part of it: one sender's deposits, or several
     start = named[0]?.first
-    from = named[0]?.address
+    from = named[0]
     for (const g of named) {
       const only =
         g.deposits === 1
@@ -103,13 +104,22 @@ function Link({ path }: { path: Path }) {
             {g.chain ? ` on ${originName(g.chain)}` : ''}
             <br />
             {date(g.first).slice(0, 10)} – {date(g.last).slice(0, 10)}
+            {g.paid && (
+              <>
+                <br />
+                <OwnerNote addresses={g.addresses ?? []} root={g.address} />
+              </>
+            )}
           </Box>
         ),
       )
     }
   } else if (o.type === 'deposit' && path.sources.length <= 1) {
     start = o.deposit?.time ?? o.time
-    from = o.deposit && senderOf(o.deposit)
+    from = o.deposit && {
+      address: senderOf(o.deposit),
+      addresses: addressesOf(o.deposit),
+    }
     sources.push(
       o.deposit ? (
         <DepositBox key="d" d={o.deposit} />
@@ -153,7 +163,7 @@ function Link({ path }: { path: Path }) {
       </Box>,
     )
   }
-  const same = from !== undefined && from === w.recipient.toLowerCase()
+  const same = from && sameAs(from, w.recipient, w.owner)
   const internal = path.hops.filter(
     (h) => h.kind !== 'deposit' && h.kind !== 'withdrawal',
   ).length
@@ -170,7 +180,7 @@ function Link({ path }: { path: Path }) {
             .filter(Boolean)
             .join(' · ')}
         </span>
-        {same && <span className="chip chip-strong">same address</span>}
+        {same && <SameChip same={same} />}
       </div>
       <WithdrawalBox w={w} />
     </div>
@@ -220,10 +230,22 @@ function DepositBox({ d, share }: { d: Deposit; share?: string }) {
         <>
           from <Address address={d.depositor} chain={d.chain} l1Tx={d.l1Tx} />{' '}
           on {CHAINS[d.chain].name}
+          {d.funding && (
+            <>
+              {' · '}
+              <FundingText deposit={d} />
+            </>
+          )}
         </>
       )}
       <br />
       {date(d.time)}
+      {d.owner?.paid && (
+        <>
+          <br />
+          <OwnerNote addresses={addressesOf(d)} root={d.owner.address} />
+        </>
+      )}
     </Box>
   )
 }
@@ -247,13 +269,23 @@ function WithdrawalBox({ w }: { w: Withdrawal }) {
   )
 }
 
-/** Who a deposit came from: the sender on the other chain when bridged */
-function senderOf(d: Deposit): string {
-  return (
-    d.bridge?.funder?.address ??
-    d.bridge?.depositor ??
-    d.depositor
-  ).toLowerCase()
+/** The sender is the recipient: the same address, or the same owner */
+function SameChip({ same }: { same: 'address' | 'owner' }) {
+  return same === 'address' ? (
+    <span
+      className="chip chip-strong"
+      title="the address the deposits came from is the address the withdrawal went to"
+    >
+      same address
+    </span>
+  ) : (
+    <span
+      className="chip chip-strong help"
+      title="the withdrawal went to an address the data links to the sender of the deposits (see who paid in)"
+    >
+      same owner
+    </span>
+  )
 }
 
 function duration(seconds: number): string {
@@ -779,8 +811,10 @@ export function DepositPanel({ graph, mint }: { graph: Graph; mint: string }) {
     .filter((r) => r.share.min >= DUST)
     .slice(0, NAMED_SOURCES)
   const spread = graph.spread
-  const from = senderOf(d)
-  const same = named.some((r) => r.address === from)
+  const from = { address: senderOf(d), addresses: addressesOf(d) }
+  const same = named
+    .map((r) => sameAs(from, r.address, r.owner))
+    .find((x) => x !== undefined)
   // nothing bounded: one line instead of a column of question marks
   const unbounded =
     spread?.truncated === true && !recipients.some((r) => r.share.min >= DUST)
@@ -837,7 +871,7 @@ export function DepositPanel({ graph, mint }: { graph: Graph; mint: string }) {
           <span>
             {named[0] ? `${duration(named[0].first - d.time)} later` : ''}
           </span>
-          {same && <span className="chip chip-strong">same address</span>}
+          {same && <SameChip same={same} />}
         </div>
         <div className="grid gap-2">
           {named.length > 0 ? (

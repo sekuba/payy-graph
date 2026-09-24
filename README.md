@@ -95,11 +95,33 @@ The sync traces them back across the bridge ([`src/l1/bridges.ts`](src/l1/bridge
 when the last USDC transfer into a depositor before its deposit is an Across
 fill of exactly the deposited amount, the fill names the origin chain and
 the origin address. On the origin chain, the Across deposit is found by its
-id, and the transfer that paid the origin address just before it (within an
-hour) names who sent the funds. A search for that sender lists the deposit.
-Because the app reuses the origin address, it also links all of one user's
-bridged deposits. Origin chains need an RPC each (see `.env.example`);
-without one, the deposit still shows its origin chain and address.
+id, and the payments into the origin address since its previous transfer out
+(up to three days back) name who paid it. Deposits that did not come through
+a bridge get the transfer that funded the deposit address just before; when
+a contract such as a swap router sent it, the sender of that transaction is
+who paid. Origin chains need an RPC each (see `.env.example`); without one,
+a deposit still shows its origin chain and address.
+
+## One owner, several addresses
+
+The Payy app uses fresh deposit addresses, so one user's deposits come from
+many addresses. They are grouped into owners
+([`src/graph/identity.ts`](src/graph/identity.ts)) by two kinds of link,
+kept apart because they are not equally certain:
+
+- **By events.** A deposit whose USDC an Across fill delivered belongs with
+  the address that bridged it; the fill names both. Many fresh deposit
+  addresses behind one origin address are one owner.
+- **By payment.** An address is taken to belong to whoever paid it just
+  before it deposited or bridged. That is how a user funds their own Payy
+  address, but a payment alone does not prove ownership (a friend can pay
+  you), so pages that rely on it say "grouped by who paid in". Services are
+  never used for it: a payer counts only if it paid at most two addresses,
+  is not a contract and has no public label (exchanges, Payy's own).
+
+Deposits are attributed to their owner: "traced to one sender" means all
+but under a cent of a withdrawal provably came from one owner's deposits,
+and "same owner" marks a withdrawal to an address of that owner.
 
 ## Labels and names
 
@@ -121,7 +143,8 @@ src/payy/            node API client, history indexer, snapshot import/export
 src/l1/              minimal JSON-RPC client, event decoding, L1 indexer
 src/graph/           closure walk, roles, amount inference, queries, types
 src/l1/names.ts      ENS and GNS reverse lookups
-src/l1/bridges.ts    deposits bridged in through Across, traced to the origin chain
+src/l1/bridges.ts    deposits bridged in through Across, and who paid each deposit address
+src/graph/identity.ts addresses grouped into owners, by bridge events and payments
 src/labels.ts        builds src/labels.generated.ts from public sources
 src/server.ts        JSON API (express)
 src/trace.ts         command line view
@@ -131,7 +154,7 @@ web/                 Vite + React UI: search, layered graph, tables
 
 Storage is one SQLite file (`node:sqlite`, no native dependency), one table
 per kind of fact: `txn`, `note`, `deposit`, `burned`, `settlement`, and the
-derived `role`, `card_batch`, `bridge_in` and `name`.
+derived `role`, `card_batch`, `bridge_in`, `bridge_payer`, `identity`, `trace` and `name`.
 
 ## Running
 
