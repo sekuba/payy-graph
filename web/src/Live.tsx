@@ -76,10 +76,10 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
 
   return (
     <>
+      {stats && <Stats stats={stats} onKeys={() => onSelect('keys')} />}
       {stats && stats.incident.noNote.count > 0 && (
         <IncidentNote stats={stats} onSelect={onSelect} />
       )}
-      {stats && <Stats stats={stats} onKeys={() => onSelect('keys')} />}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap gap-1 text-xs">
           {TABS.map(([id, text, title]) => (
