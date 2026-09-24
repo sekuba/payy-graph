@@ -439,6 +439,136 @@ export interface NamedAddress {
   last: number
 }
 
+/** What first spent a note the migration distribution released */
+export type FirstSpend =
+  | 'unspent'
+  /** a send with one input and one output: the note re-issued to a new key */
+  | 'rekey'
+  /** a send with one input and two outputs: a payment and its change */
+  | 'send'
+  /** the same, with the payment merged into a card batch */
+  | 'card'
+  /** a send with two inputs */
+  | 'merge'
+  /** a withdrawal */
+  | 'burn'
+  | 'other'
+
+/** One note the migration distribution released, for examples */
+export interface MigratedNote {
+  commitment: string
+  createdTx: string
+  createdTime: number
+  first: FirstSpend
+  spentTx?: string
+  /** seconds between its issue and its first spend (or now) */
+  held: number
+  value?: number
+  min: number
+  max?: number
+  burnAmount?: number
+  burnAddr?: string
+}
+
+/** How long a set of migrated notes sat, and what it held where known */
+export interface HeldStats {
+  count: number
+  /** median and longest seconds between issue and first spend (or now) */
+  medianHeld: number
+  maxHeld: number
+  /** spent within an hour / a day of issue */
+  withinHour: number
+  withinDay: number
+  /** notes whose value the graph pins down, and their sum */
+  exact: number
+  exactSum: number
+  /** the sum of every note's lower bound (its value when known) */
+  min: number
+  /** the sum of upper bounds, when every note has one */
+  max?: number
+  examples: MigratedNote[]
+}
+
+/** A two-input transaction that consumed an old note with a fresh one */
+export interface Sweep {
+  tx: string
+  time: number
+  kind: TxKind
+  outputs: number
+  old: {
+    commitment: string
+    tx: string
+    age: number
+    min: number
+    max?: number
+    value?: number
+  }
+  fresh: { commitment: string; tx: string; age: number; deposit: boolean }
+  burn?: {
+    tx: string
+    hops: number
+    recipient: string
+    label?: string
+    amount: number
+  }
+}
+
+/**
+ * Whose keys spend the notes in users' wallets, as far as the public data
+ * shows; definitions in src/graph/keys.ts
+ */
+export interface KeyStats {
+  migration: {
+    start: number
+    end: number
+    /** notes released: payouts to wallets, and the change ending payout chains */
+    payouts: number
+    change: number
+    /** treasury USDC that funded them: the value of all released notes together */
+    deposited: number
+    /** notes classified so far (the rest are pending) */
+    classified: number
+    first: Record<FirstSpend, HeldStats>
+    /** all notes spent so far */
+    spent: HeldStats
+    /** the amounts of the withdrawals that spent a payout directly */
+    burned: number
+  }
+  sweeps: {
+    /** the history is scanned up to this height */
+    height: number
+    count: number
+    /** the fresh note was a deposit */
+    withDeposit: number
+    /** old notes of at most one USDC, and the sum of their upper bounds */
+    small: number
+    smallSum: number
+    /** old notes whose value is only bounded from below or not at all */
+    open: number
+    /** sweeps that reach a withdrawal within a few transactions */
+    intoBurn: number
+    medianAge: number
+    examples: Sweep[]
+  }
+  /** withdrawals outside card batches by shape, and what created their note */
+  burns: {
+    computedAt: number
+    noChange: BurnShape
+    withChange: BurnShape
+  }
+}
+
+/** Withdrawals of one shape, and those whose note a 1-in/1-out send made */
+export interface BurnShape {
+  count: number
+  amount: number
+  afterRekey: number
+  /** median seconds between that send and the withdrawal */
+  medianGap: number
+  /** of those, within ten minutes */
+  within10min: number
+}
+
 /** ENS and GNS primary names by lowercase address, verified both ways */
 export type Names = Record<string, { ens?: string; gns?: string }>
 

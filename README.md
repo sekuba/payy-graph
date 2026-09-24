@@ -123,6 +123,35 @@ Deposits are attributed to their owner: "traced to one sender" means all
 but under a cent of a withdrawal provably came from one owner's deposits,
 and "same owner" marks a withdrawal to an address of that owner.
 
+## Whose keys spend the notes
+
+Payy's FAQ says the private key that controls a user's crypto is stored on
+the device, accessible by only the user. The published code shows two kinds
+of notes in a wallet: those the app makes for itself, whose keys it derives
+on the device, and those that arrive from Payy's server with an explicit
+key the server made or saw (the 2025 migration, payment links, ramp
+deposits, the card). The server keeps such notes with their private keys by
+owner and spends them by owner. The chain cannot see keys, but it shows what
+happened to the notes the server issued and when
+([`src/graph/keys.ts`](src/graph/keys.ts), page `#keys`):
+
+- **Migrated notes.** The distribution released about 3,000 notes under
+  keys the server generated. For each: what first spent it (a 1-in/1-out
+  send, which is the shape of the wallet moving the balance to a key of its
+  own; a payment; a card charge; a merge; a withdrawal; or nothing yet), how
+  long after issue, and what it held as far as the graph determines it.
+- **Sweeps.** Two-input transactions that consume a note at least a day old
+  together with one made in the ten minutes before, the two from separate
+  histories, with the old note bounded where the graph allows. A wallet
+  consolidating its own change looks the same, so they are counted, not
+  attributed.
+- **Withdrawals by shape.** How many withdrawals burn a note that a
+  1-in/1-out send made just before, with and without change.
+
+Every figure on the page links to a transaction or to a line of Payy's code
+at the commit checked (`src/protocol.ts`), and is marked as proved by the
+data or merely suggested by it.
+
 ## Labels and names
 
 Addresses operated by Payy are labelled in `src/protocol.ts`. Other public
@@ -154,7 +183,8 @@ web/                 Vite + React UI: search, layered graph, tables
 
 Storage is one SQLite file (`node:sqlite`, no native dependency), one table
 per kind of fact: `txn`, `note`, `deposit`, `burned`, `settlement`, and the
-derived `role`, `card_batch`, `bridge_in`, `bridge_payer`, `identity`, `trace` and `name`.
+derived `role`, `card_batch`, `bridge_in`, `bridge_payer`, `identity`, `trace`,
+`migrated`, `sweep` and `name`.
 
 ## Running
 
@@ -171,6 +201,7 @@ pnpm dev trace <address>    # command line: deposits behind each withdrawal
 pnpm dev check              # consistency checks
 pnpm dev roles              # classify migration and card batches (sync does this too)
 pnpm dev traces             # trace all withdrawals now (sync does it a slice at a time)
+pnpm dev keys               # classify migrated notes and sweeps now (sync does it a slice at a time)
 pnpm dev names              # resolve ENS and GNS names of all addresses (sync keeps them fresh)
 pnpm dev bridges            # trace deposits bridged in from other chains (sync does this too)
 pnpm dev labels             # rebuild public labels (needs ETHERSCAN_API_KEY for all of it)
@@ -215,6 +246,7 @@ GET /api/path/:burnTx           a withdrawal's history: origin and released note
 GET /api/graph?tx=&dir=back|forward|both&limit=
 GET /api/names?a=&a=                ENS and GNS primary names of L1 addresses
 GET /api/stats                      live figures: heights, 24h activity, traces
+GET /api/keys                       whose keys spend the notes: migrated notes, sweeps, burn shapes
 GET /api/live?named=1               newest deposits, withdrawals, card batches
 GET /api/named                      labelled and named addresses with totals
 ```

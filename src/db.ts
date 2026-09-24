@@ -182,6 +182,56 @@ const SCHEMA = `
   create index if not exists deposit_time on deposit(time);
   create index if not exists deposit_amount on deposit(amount, time);
 
+  -- Every note the migration distribution released (src/graph/keys.ts):
+  -- what first spent it and what the graph says it held. first is null
+  -- until the note is classified; 'unspent' rows are checked again.
+  create table if not exists migrated (
+    commitment text primary key,
+    created_tx text not null,
+    created_time integer not null,
+    change integer not null,     -- the change at the end of a payout chain
+    first text,                  -- unspent, rekey, send, card, merge, burn, other
+    spent_tx text,
+    spent_time integer,
+    spender_inputs integer,
+    spender_outputs integer,
+    burn_amount integer,
+    burn_addr text,
+    value integer,
+    min integer,
+    max integer,
+    truncated integer
+  );
+  create index if not exists migrated_first on migrated(first);
+
+  -- Two-input transactions that consume a note at least a day old together
+  -- with one made minutes before, from separate histories (src/graph/keys.ts)
+  create table if not exists sweep (
+    tx text primary key,
+    height integer not null,
+    time integer not null,
+    kind integer not null,
+    outputs integer not null,
+    old_commitment text not null,
+    old_tx text not null,
+    old_age integer not null,
+    fresh_commitment text not null,
+    fresh_tx text not null,
+    fresh_age integer not null,
+    fresh_kind integer not null,  -- 2 when the fresh note is a deposit
+    old_value integer,
+    old_min integer not null,
+    old_max integer,
+    fresh_value integer,
+    fresh_min integer not null,
+    fresh_max integer,
+    burn_tx text,                 -- first withdrawal reached ahead, if any
+    burn_hops integer,
+    burn_addr text,
+    burn_amount integer
+  );
+  create index if not exists sweep_height on sweep(height);
+
   -- ENS and GNS primary names of L1 addresses, cached
   create table if not exists name (
     address text primary key,

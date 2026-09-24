@@ -76,7 +76,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
 
   return (
     <>
-      {stats && <Stats stats={stats} />}
+      {stats && <Stats stats={stats} onKeys={() => onSelect('keys')} />}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap gap-1 text-xs">
           {TABS.map(([id, text, title]) => (
@@ -219,7 +219,7 @@ function totals(t: { count: number; amount: number }): React.ReactNode {
  * What the public data reveals, in three figures that it proves; the
  * definitions are in the hovers and in src/graph/live.ts
  */
-function Stats({ stats }: { stats: LiveStats }) {
+function Stats({ stats, onKeys }: { stats: LiveStats; onKeys: () => void }) {
   const [range, setRange] = useState<'week' | 'all'>('week')
   const p = stats.privacy[range]
   const pct = (k: number, n: number) =>
@@ -249,6 +249,15 @@ function Stats({ stats }: { stats: LiveStats }) {
         >
           {pct(p.reused, p.recipients)} {of(p.reused, p.recipients)}
         </Stat>
+        <button
+          type="button"
+          className="text-xs underline"
+          style={{ color: 'var(--ink-2)' }}
+          onClick={onKeys}
+          title="part of an ordinary wallet balance consists of notes whose spending keys Payy's server generated or received"
+        >
+          and who holds the keys →
+        </button>
         <span className="flex gap-1 text-xs">
           {(['week', 'all'] as const).map((r) => (
             <button

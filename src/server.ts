@@ -4,6 +4,7 @@ import express from 'express'
 import type { Config } from './config'
 import type { Db } from './db'
 import { getTxn } from './graph/closure'
+import { keyStats } from './graph/keys'
 import { liveEvents, liveStats, namedAddresses } from './graph/live'
 import { walkPath } from './graph/path'
 import {
@@ -122,6 +123,12 @@ export function serve(db: Db, config: Config): void {
     cached(15, (req) =>
       liveEvents(db, { named: req.query.named === '1', limit: LIVE_ROWS }),
     ),
+  )
+
+  /** whose keys spend the notes in wallets: the migrated notes and sweeps */
+  app.get(
+    '/api/keys',
+    cached(300, () => keyStats(db) ?? {}),
   )
 
   /** every labelled or named address that used Payy, with its totals */

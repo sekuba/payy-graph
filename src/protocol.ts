@@ -123,6 +123,54 @@ export const TOPICS = {
     '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
 } as const
 
+/**
+ * Payy's published code, at the commit the facts above were checked
+ * against, and the passages on whose keys spend a wallet's notes
+ * (src/graph/keys.ts). Each is a path with the lines, for links.
+ */
+export const PAYY_REPO = 'https://github.com/polybase/payy'
+export const PAYY_COMMIT = '2f95947f12981a838f6f0c9dddace825bf835502'
+/** the FAQ answer "How does Payy work?" */
+export const PAYY_FAQ_URL =
+  'https://docs.payy.network/payy-wallet/payy-wallet-faq'
+export const PAYY_CODE = {
+  /** the app derives a note's key from the wallet key and the note's psi, or uses an explicit one */
+  derivedKey: 'pkg/wallet-data-dep/src/note.rs#L111-L137',
+  /** keccak(psi ‖ wallet key) */
+  deriveFn: 'pkg/wallet-primitives/src/lib.rs#L7-L19',
+  /** the kinds of key a note in the app can have: PROVIDED, WALLET, DERIVED */
+  keyKinds:
+    'app/packages/payy/src/ts-rs-bindings/WalletPrivateKeyKind.ts#L7-L12',
+  /** the server's notes table: private_key and owner_id */
+  notesTable: 'pkg/database/src/schema.rs#L88-L110',
+  /** "Owner ID of the note (as all private keys are ephemeral)" */
+  ownerId: 'pkg/guild-interface/src/notes/note.rs#L33-L34',
+  /** the server picks notes of an owner and spends them */
+  assign: 'pkg/notes-interface/src/assign.rs#L33-L45',
+  /** "Generate a UTXO proof, submit the transaction" */
+  transfer: 'pkg/notes-interface/src/transfer.rs#L8-L11',
+  /** the migration request: every old note with its private key */
+  migrateRequest: 'pkg/guild-interface/src/migrate.rs#L16-L27',
+  /** POST /migrate/notes */
+  migrateClient: 'pkg/guild-client-http/src/migrate.rs#L11-L22',
+  /** the response: notes with private keys */
+  migrateResponse: 'pkg/guild-interface/src/migrate.rs#L13-L14',
+  /** a new note gets a random private key */
+  randomKey: 'pkg/notes-interface/src/data.rs#L36-L42',
+  /** a payment link carries the note's private key */
+  linkKey: 'pkg/parse-link/src/note_url.rs#L45-L46',
+  /** POST /notes: the app registers a note with the server, private key included */
+  createNote: 'pkg/guild-interface/src/notes/create.rs#L34-L46',
+  /** a ramp deposit is delivered as a private key */
+  rampKey: 'pkg/ramps-interface/src/transaction/kinds/deposit.rs#L14-L19',
+  /** a claim: the app spends a received note (link, receive) to a key of its own */
+  claim: 'pkg/wallet-data-dep/src/kinds/claim.rs#L37-L54',
+} as const
+
+export function payyCodeUrl(ref: string): string {
+  return `${PAYY_REPO}/blob/${PAYY_COMMIT}/${ref}`
+}
+
 export const TREASURY_LABEL = 'Payy treasury'
 export const CARD_LABEL = 'Payy card settlement'
 

@@ -1,4 +1,5 @@
 import { type Db, getSync, setSync, transaction } from '../db'
+import { deriveKeys } from '../graph/keys'
 import { deriveRoles } from '../graph/roles'
 import { deriveTraces } from '../graph/traces'
 import { log, sleep } from '../log'
@@ -7,6 +8,8 @@ import type { PayyNode, TxnSnapshot } from './api'
 
 /** time per catch-up spent tracing older withdrawals */
 const TRACE_BUDGET_MS = 5_000
+/** time per catch-up spent on whose keys spend the notes (src/graph/keys.ts) */
+const KEYS_BUDGET_MS = 3_000
 
 /** sync table key of the node's pagination cursor */
 export const CURSOR_KEY = 'payy_cursor'
@@ -122,6 +125,7 @@ export async function syncPayy(
       // trace the new withdrawals and a slice of the older ones
       deriveRoles(db)
       deriveTraces(db, TRACE_BUDGET_MS)
+      deriveKeys(db, KEYS_BUDGET_MS)
       if (!options.follow) break
       await sleep(10_000)
     }

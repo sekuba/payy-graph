@@ -11,6 +11,7 @@ import { api, type Direction } from './api'
 import { OwnerNote } from './Bridge'
 import { usdc } from './format'
 import { GraphView } from './GraphView'
+import { Keys } from './Keys'
 import { Live } from './Live'
 import { DepositPanel, PathPanel } from './PathPanel'
 import { SourcesGraph, SpreadGraph } from './SourcesGraph'
@@ -20,6 +21,8 @@ import { DepositTable, WithdrawalTable } from './Tables'
 const INITIAL_WITHDRAWALS = 1
 /** Graph sizes offered one after the other when a graph is truncated */
 const LIMITS = [400, 1000, 2000]
+/** The query that shows the page on whose keys spend the notes (#keys) */
+const KEYS_PAGE = 'keys'
 
 /**
  * One page: a search box, the graph, and the tables behind it. The URL hash
@@ -55,7 +58,7 @@ export function App() {
     setSummary(undefined)
     setGraph(undefined)
     setError(undefined)
-    if (!query) {
+    if (!query || query === KEYS_PAGE) {
       setResolved(undefined)
       return
     }
@@ -181,6 +184,17 @@ export function App() {
           style={{ color: 'var(--muted)' }}
         >
           <a
+            href={`#${KEYS_PAGE}`}
+            onClick={(e) => {
+              e.preventDefault()
+              setQuery(KEYS_PAGE)
+              setInput('')
+            }}
+            style={query === KEYS_PAGE ? { color: 'var(--ink)' } : undefined}
+          >
+            who holds the keys
+          </a>
+          <a
             href="https://l2beat.com/privacy/projects/payy"
             target="_blank"
             rel="noreferrer"
@@ -206,6 +220,14 @@ export function App() {
         <div style={{ color: 'var(--negative)' }}>{error}</div>
       )}
       {!query && !offline && <Live onSelect={setQuery} />}
+      {query === KEYS_PAGE && !offline && (
+        <Keys
+          onSelect={(q) => {
+            setQuery(q)
+            setInput(q)
+          }}
+        />
+      )}
 
       {resolved?.type === 'unknown' && (
         <div style={{ color: 'var(--ink-2)' }}>

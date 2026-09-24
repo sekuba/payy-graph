@@ -1,6 +1,7 @@
 import type {
   AddressSummary,
   Graph,
+  KeyStats,
   LiveEvent,
   LiveStats,
   NamedAddress,
@@ -17,7 +18,7 @@ export type Direction = 'back' | 'forward' | 'both'
  * (or proxied by Vite in development); the API's own origin when the UI is
  * hosted elsewhere, e.g. on GitHub Pages.
  */
-const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+const API_URL = (import.meta.env?.VITE_API_URL ?? '').replace(/\/$/, '')
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(API_URL + path)
@@ -38,6 +39,8 @@ export const api = {
     return get<Graph>(`/api/graph?${params}`)
   },
   stats: () => get<LiveStats>('/api/stats'),
+  /** an empty object while the sync has not computed them yet */
+  keys: () => get<KeyStats | Record<string, never>>('/api/keys'),
   live: (named: boolean) =>
     get<{ events: LiveEvent[]; names: Names }>(
       `/api/live${named ? '?named=1' : ''}`,

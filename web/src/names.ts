@@ -57,7 +57,11 @@ export function useNames(addresses: string[]): Names {
   const key = addresses.join(',')
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by content
   useEffect(() => request(addresses), [key])
-  useSyncExternalStore(subscribe, () => version)
+  useSyncExternalStore(
+    subscribe,
+    () => version,
+    () => version,
+  )
   return known
 }
 

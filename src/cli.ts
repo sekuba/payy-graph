@@ -1,6 +1,7 @@
 import { check } from './check'
 import { loadConfig } from './config'
 import { openDb } from './db'
+import { deriveKeys } from './graph/keys'
 import { deriveRoles } from './graph/roles'
 import { deriveTraces } from './graph/traces'
 import { syncBridges } from './l1/bridges'
@@ -24,6 +25,7 @@ const USAGE = `payy-graph <command>
   check                              consistency checks of the index
   roles                              classify the migration and card batches
   traces                             trace every withdrawal not traced yet
+  keys                               classify migrated notes and sweeps (sync does this too)
   names                              resolve ENS and GNS names of all addresses
   bridges                            trace deposits bridged in from other chains
   labels                             rebuild the public address labels
@@ -93,6 +95,10 @@ async function main(argv: string[]): Promise<void> {
     }
     case 'traces': {
       deriveTraces(db, Number.POSITIVE_INFINITY)
+      break
+    }
+    case 'keys': {
+      deriveKeys(db, Number.POSITIVE_INFINITY)
       break
     }
     case 'names': {
