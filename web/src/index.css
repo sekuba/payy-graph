@@ -20,7 +20,7 @@
   --brand: #9621bf;
   --negative: #d70000;
   --wash: rgba(11, 11, 11, 0.04);
-  --backdrop-opacity: 0.12;
+  --backdrop-opacity: 0.1;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -40,7 +40,7 @@
     --brand: #db8bf7;
     --negative: #ff5d5d;
     --wash: rgba(255, 255, 255, 0.06);
-    --backdrop-opacity: 0.12;
+    --backdrop-opacity: 0.1;
   }
 }
 
