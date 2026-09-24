@@ -243,10 +243,10 @@ function IncidentNote({
   return (
     <section
       className="card grid gap-2 p-3 text-sm"
-      style={{ borderColor: 'var(--negative)' }}
+      style={{ borderColor: 'var(--payy-line)' }}
     >
-      <h2 className="font-semibold" style={{ color: 'var(--negative)' }}>
-        Withdrawn without a note
+      <h2 className="font-semibold">
+        <span className="mark-payy">Withdrawn without a note</span>
       </h2>
       <p style={{ color: 'var(--ink-2)' }}>
         {n.count === 1 ? 'A withdrawal' : `${n.count} withdrawals`} on{' '}
@@ -785,8 +785,7 @@ function Source({
   if (t.origin === 'none') {
     return (
       <span
-        className="chip"
-        style={{ color: 'var(--negative)', borderColor: 'var(--negative)' }}
+        className="chip chip-payy"
         title="the proof names no input note (both commitments zero): nothing funded this withdrawal"
       >
         no note

@@ -69,7 +69,7 @@ function Claim() {
       <h2 className="font-semibold">Who holds the keys</h2>
       <blockquote
         className="border-l-2 pl-3"
-        style={{ borderColor: 'var(--axis)', color: 'var(--ink-2)' }}
+        style={{ borderColor: 'var(--payy-line)', color: 'var(--ink-2)' }}
       >
         “The private key that lets you control your crypto is stored on your
         device, accessible by only you.”{' '}

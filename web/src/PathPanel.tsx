@@ -131,7 +131,7 @@ function Link({ path }: { path: Path }) {
     )
   } else if (o.type === 'none') {
     sources.push(
-      <Box key="n" color="negative" title="No note" amount="nothing" unit="">
+      <Box key="n" color="payy-line" title="No note" amount="nothing" unit="">
         the proof names no input note: both commitments are zero
       </Box>,
     )
@@ -140,7 +140,7 @@ function Link({ path }: { path: Path }) {
     sources.push(
       <Box
         key="m"
-        color="muted"
+        color="payy-line"
         title="Migrated balance"
         amount={
           o.value !== undefined

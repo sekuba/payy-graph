@@ -1,4 +1,9 @@
-import { type ChainId, labelOf, labelSource } from '../../src/protocol'
+import {
+  type ChainId,
+  isPayyAddress,
+  labelOf,
+  labelSource,
+} from '../../src/protocol'
 import { l1AddressUrl, l1TxUrl, shortHex } from './format'
 import { nameOf, useNames } from './names'
 
@@ -47,7 +52,13 @@ export function Address({
   const title = [address, label && `label: ${labelSource(address)}`, name]
     .filter(Boolean)
     .join('\n')
-  const className = label ? 'chip' : name ? 'name' : 'mono'
+  const className = label
+    ? isPayyAddress(address)
+      ? 'chip chip-payy'
+      : 'chip'
+    : name
+      ? 'name'
+      : 'mono'
   const href = explorer
     ? `${explorer}/${l1Tx ? `tx/${l1Tx}` : `address/${address}`}`
     : chain

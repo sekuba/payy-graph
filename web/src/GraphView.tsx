@@ -26,7 +26,7 @@ const KIND = {
 } as const
 
 const VIRTUAL = {
-  migration: { name: 'Migration', color: 'var(--muted)' },
+  migration: { name: 'Migration', color: 'var(--payy-line)' },
   card: { name: 'Payy card', color: 'var(--card)' },
 } as const
 

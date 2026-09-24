@@ -212,6 +212,11 @@ export const CARD_SETTLEMENT = Object.keys(KNOWN_ADDRESSES).filter(
   (a) => KNOWN_ADDRESSES[a] === CARD_LABEL,
 )
 
+/** An address Payy operates, as observed onchain (KNOWN_ADDRESSES) */
+export function isPayyAddress(address: string): boolean {
+  return address.toLowerCase() in KNOWN_ADDRESSES
+}
+
 /** Operated by Payy (above), else a public label (src/labels.ts) */
 export function labelOf(address: string): string | undefined {
   const a = address.toLowerCase()

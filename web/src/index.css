@@ -21,6 +21,11 @@
   --negative: #d70000;
   --wash: rgba(11, 11, 11, 0.04);
   --backdrop-opacity: 0.09;
+  /* Payy's lime (payy.network: --lime, --lime-dark), for what is Payy's own
+     doing: a fill with dark ink on it, and a line that shows on this page */
+  --payy: #d7ff16;
+  --payy-ink: #070a1f;
+  --payy-line: #a7c900;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -41,6 +46,7 @@
     --negative: #ff5d5d;
     --wash: rgba(255, 255, 255, 0.06);
     --backdrop-opacity: 0.09;
+    --payy-line: #d7ff16;
   }
 }
 
@@ -192,6 +198,18 @@ th + th {
 .chip-strong {
   border-color: var(--brand);
   color: var(--brand);
+}
+/* Payy's own: its addresses, and what only Payy could have done */
+.chip-payy {
+  background: var(--payy);
+  border-color: var(--payy);
+  color: var(--payy-ink);
+}
+.mark-payy {
+  background: var(--payy);
+  color: var(--payy-ink);
+  padding: 0 6px;
+  border-radius: 4px;
 }
 /* Phones: table rows become wrapped lines, headers move into data-label */
 @media (max-width: 639px) {
