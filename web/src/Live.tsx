@@ -10,7 +10,7 @@ import { CHAINS, type ChainId, ORIGIN_CHAINS } from '../../src/protocol'
 import { Address } from './Address'
 import { api } from './api'
 import { BridgeText } from './Bridge'
-import { between, date, l1TxUrl, usdc } from './format'
+import { between, date, l1TxUrl, payyTxUrl, usdc } from './format'
 import { seedNames } from './names'
 
 const TABS = [
@@ -44,7 +44,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
   const [stats, setStats] = useState<LiveStats>()
   const [events, setEvents] = useState<LiveEvent[]>()
   const [tab, setTab] = useState<'all' | 'linked' | 'named' | 'addresses'>(
-    'all',
+    'linked',
   )
   const filter = tab === 'named' || tab === 'linked' ? tab : undefined
   const [now, setNow] = useState(() => Date.now() / 1000)
@@ -267,12 +267,14 @@ function IncidentNote({
         {recipients.map((r, i) => (
           <span key={r}>
             {i > 0 && ', '}
+            <Address address={r} chain={first?.chain} />{' '}
             <button
               type="button"
               className="underline"
               onClick={() => onSelect(r)}
+              title={`${r}. Open its page here`}
             >
-              <Address address={r} chain={first?.chain} />
+              its page
             </button>
           </span>
         ))}
@@ -314,10 +316,19 @@ function IncidentNote({
               type="button"
               className="mono underline"
               onClick={() => onSelect(w.txHash)}
-              title={w.txHash}
+              title={`${w.txHash}. Click to open it here`}
             >
               {date(w.time)}
             </button>{' '}
+            <a
+              href={payyTxUrl(w.txHash)}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: 'var(--muted)' }}
+              title="on Payy's explorer"
+            >
+              ↗
+            </a>{' '}
             <span className="mono">{usdc(w.amount)} USDC</span>
             <span style={{ color: 'var(--muted)' }}>
               {w.substituted ? ' · paid early by Payy' : ''}
@@ -340,9 +351,18 @@ function IncidentNote({
                 type="button"
                 className="mono underline"
                 onClick={() => onSelect(t.hash)}
+                title={`${t.hash}. Click to open it here`}
               >
                 {t.hash.slice(0, 8)}…
-              </button>
+              </button>{' '}
+              <a
+                href={payyTxUrl(t.hash)}
+                target="_blank"
+                rel="noreferrer"
+                title="on Payy's explorer"
+              >
+                ↗
+              </a>
             </span>
           ))}
           ). Whether they relate to the above is not visible.

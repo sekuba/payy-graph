@@ -10,7 +10,8 @@ import { nameOf, useNames } from './names'
 /**
  * An L1 address as a reader wants to see it: its label if it has one, else
  * its ENS or GNS name, else the shortened hex. The full address and the
- * label's source are in the tooltip. Links to the explorer of `chain`.
+ * label's source are in the tooltip. Links to the explorer of `chain`, or
+ * to Ethereum's when no chain is given (an address is the same on both).
  */
 export function Address({
   address,
@@ -61,11 +62,9 @@ export function Address({
       : 'mono'
   const href = explorer
     ? `${explorer}/${l1Tx ? `tx/${l1Tx}` : `address/${address}`}`
-    : chain
-      ? l1Tx
-        ? l1TxUrl(chain, l1Tx)
-        : l1AddressUrl(chain, address)
-      : undefined
+    : l1Tx
+      ? l1TxUrl(chain ?? 'ethereum', l1Tx)
+      : l1AddressUrl(chain ?? 'ethereum', address)
   return href ? (
     <a
       href={href}
@@ -73,6 +72,8 @@ export function Address({
       rel="noreferrer"
       className={className}
       title={title}
+      // inside a clickable row, the link should not also select the row
+      onClick={(e) => e.stopPropagation()}
     >
       {text}
     </a>

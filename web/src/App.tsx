@@ -9,7 +9,7 @@ import type {
 import { Address } from './Address'
 import { api, type Direction } from './api'
 import { OwnerNote } from './Bridge'
-import { usdc } from './format'
+import { l1AddressUrl, usdc } from './format'
 import { GraphView } from './GraphView'
 import { Keys } from './Keys'
 import { Live } from './Live'
@@ -240,7 +240,15 @@ export function App() {
       {summary && (
         <section className="card p-3">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
-            <span className="mono break-all">{summary.address}</span>
+            <a
+              className="mono break-all"
+              href={l1AddressUrl('ethereum', summary.address)}
+              target="_blank"
+              rel="noreferrer"
+              title="on Etherscan"
+            >
+              {summary.address}
+            </a>
             <Address address={summary.address} quiet />
             <span className="text-xs" style={{ color: 'var(--muted)' }}>
               {plural(summary.withdrawals.length, 'withdrawal')} ·{' '}
