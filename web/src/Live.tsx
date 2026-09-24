@@ -249,12 +249,6 @@ function Stats({ stats }: { stats: LiveStats }) {
         >
           {pct(p.reused, p.recipients)} {of(p.reused, p.recipients)}
         </Stat>
-        <Stat
-          label="bridged deposits with a known sender"
-          title={`deposits bridged in through Across (${pct(p.bridged, p.deposits)} of all deposits) whose sender on the other chain is named by the bridge transfers; the Payy app reuses one address per user there, which links their deposits`}
-        >
-          {pct(p.bridgedKnown, p.bridged)} {of(p.bridgedKnown, p.bridged)}
-        </Stat>
         <span className="flex gap-1 text-xs">
           {(['week', 'all'] as const).map((r) => (
             <button
