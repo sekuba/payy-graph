@@ -372,23 +372,25 @@ export interface LiveStats {
     withdrawals: { count: number; amount: number }
     card: { payments: number; batches: number; amount: number }
   }
-  /** withdrawals of the last 30 days with an amount match */
-  matches: { withdrawals: number; matched: number }
-  /** withdrawal recipients, and those that received more than one */
-  reuse: { recipients: number; reused: number }
-  /** over the withdrawals traced so far, in the last 7 days and overall */
-  traces: Record<
-    'week' | 'all',
-    {
-      count: number
-      /** begin with one deposit */
-      single: number
-      /** all of it provably from the deposits of one sender */
-      attributed: number
-      medianDepositors?: number
-      medianNearest?: number
-    }
-  >
+  /** what the public data reveals, over the last 7 days and overall */
+  privacy: Record<'week' | 'all', PrivacyStats>
+}
+
+/** The headline figures of the live view; definitions in src/graph/live.ts */
+export interface PrivacyStats {
+  /** withdrawals (not card batches), and those traced so far */
+  withdrawals: number
+  traced: number
+  /** all but under a cent provably from the deposits of one sender */
+  fromOneSender: number
+  /** their recipients, and those that received more than one withdrawal */
+  recipients: number
+  reused: number
+  /** deposits, those bridged in through Across, and those whose sender on
+   * the other chain is known */
+  deposits: number
+  bridged: number
+  bridgedKnown: number
 }
 
 /** An address with a label or a name, and everything it did with Payy */

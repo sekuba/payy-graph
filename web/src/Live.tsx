@@ -215,34 +215,45 @@ function totals(t: { count: number; amount: number }): React.ReactNode {
   )
 }
 
-/** What the public data reveals: how withdrawals trace back to deposits */
+/**
+ * What the public data reveals, in three figures that it proves; the
+ * definitions are in the hovers and in src/graph/live.ts
+ */
 function Stats({ stats }: { stats: LiveStats }) {
   const [range, setRange] = useState<'week' | 'all'>('week')
-  const t = stats.traces[range]
+  const p = stats.privacy[range]
+  const pct = (k: number, n: number) =>
+    n ? `${Math.round((100 * k) / n)}%` : '–'
+  const of = (k: number, n: number) => (
+    <Muted>
+      ({k.toLocaleString('en-US')} of {n.toLocaleString('en-US')})
+    </Muted>
+  )
   return (
-    <section className="card grid gap-1 p-3 text-sm">
+    <section className="card grid gap-2 p-3 text-sm">
+      <p style={{ color: 'var(--ink-2)' }}>
+        Payy hides who owns a note and how much it holds, but every link between
+        notes is public. From those links alone:
+      </p>
       <div className="stats">
         <Stat
-          label="fully from one sender"
-          title="withdrawals all of which provably came from the deposits of one address (the sender on the other chain when bridged in): the notes between them leave no room for anyone else's funds"
+          label="withdrawals traced to one sender"
+          title="all but under a cent of the withdrawal provably came from the deposits of one address (the sender on the other chain when bridged in): the notes between them leave no room for anyone else's funds"
         >
-          {t.count ? `${Math.round((100 * t.attributed) / t.count)}%` : '–'}{' '}
-          <Muted>
-            ({t.attributed.toLocaleString('en-US')} of{' '}
-            {t.count.toLocaleString('en-US')})
-          </Muted>
+          {pct(p.fromOneSender, p.withdrawals)}{' '}
+          {of(p.fromOneSender, p.withdrawals)}
         </Stat>
         <Stat
-          label="depositors behind a withdrawal"
-          title="median number of distinct addresses whose deposits are in a withdrawal's history (walking back up to 400 transactions, so a minimum for long histories)"
+          label="recipients reused"
+          title="recipients of these withdrawals that received more than one withdrawal, which links those withdrawals to each other"
         >
-          {t.medianDepositors ?? '–'}
+          {pct(p.reused, p.recipients)} {of(p.reused, p.recipients)}
         </Stat>
         <Stat
-          label="hops to nearest deposit"
-          title="median number of transactions between a withdrawal and the nearest deposit in its history"
+          label="bridged deposits with a known sender"
+          title={`deposits bridged in through Across (${pct(p.bridged, p.deposits)} of all deposits) whose sender on the other chain is named by the bridge transfers; the Payy app reuses one address per user there, which links their deposits`}
         >
-          {t.medianNearest ?? '–'}
+          {pct(p.bridgedKnown, p.bridged)} {of(p.bridgedKnown, p.bridged)}
         </Stat>
         <span className="flex gap-1 text-xs">
           {(['week', 'all'] as const).map((r) => (
@@ -256,27 +267,6 @@ function Stats({ stats }: { stats: LiveStats }) {
             </button>
           ))}
         </span>
-      </div>
-      <div className="stats">
-        <Stat
-          label="amount matches, 30d"
-          title="withdrawals in the last 30 days whose exact amount (not a whole number of USDC) was deposited in the 7 days before"
-        >
-          {stats.matches.matched.toLocaleString('en-US')}{' '}
-          <Muted>of {stats.matches.withdrawals.toLocaleString('en-US')}</Muted>
-        </Stat>
-        <Stat
-          label="reused recipients"
-          title="withdrawal recipients that received more than one withdrawal, which links those withdrawals to each other"
-        >
-          {stats.reuse.recipients
-            ? `${Math.round((100 * stats.reuse.reused) / stats.reuse.recipients)}%`
-            : '–'}{' '}
-          <Muted>
-            ({stats.reuse.reused.toLocaleString('en-US')} of{' '}
-            {stats.reuse.recipients.toLocaleString('en-US')})
-          </Muted>
-        </Stat>
       </div>
     </section>
   )
@@ -657,13 +647,10 @@ function Source({
   const n = `${t.depositors}${t.truncated ? '+' : ''}`
   return (
     <span
-      title={`deposits from ${n} distinct addresses are in this withdrawal's history${t.truncated ? ' (walked back 400 transactions)' : ''}; the nearest is ${plural(t.nearest ?? 0, 'transaction')} away`}
+      style={{ color: 'var(--muted)' }}
+      title={`no single sender provably supplied it: deposits from ${n} distinct addresses are in its history${t.truncated ? ' (walked back 400 transactions)' : ''}`}
     >
-      {n} depositor{t.depositors === 1 && !t.truncated ? '' : 's'}
-      <span style={{ color: 'var(--muted)' }}>
-        {' '}
-        · nearest {plural(t.nearest ?? 0, 'hop')}
-      </span>
+      mixed · from {n} depositor{t.depositors === 1 && !t.truncated ? '' : 's'}
     </span>
   )
 }

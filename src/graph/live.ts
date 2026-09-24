@@ -1,4 +1,5 @@
 import { all, type Db, one } from '../db'
+import { DUST } from '../format'
 import { PUBLIC_LABELS } from '../labels.generated'
 import {
   CARD_SETTLEMENT,
@@ -9,13 +10,14 @@ import {
 } from '../protocol'
 import type { TxnRow } from './closure'
 import { bridgeOf, cardBatchOf, withdrawalOf } from './queries'
-import { fromRow, traceOf } from './traces'
+import { traceOf } from './traces'
 import type {
   AmountMatch,
   LiveEvent,
   LiveStats,
   NamedAddress,
   Names,
+  PrivacyStats,
 } from './types'
 
 const DAY = 24 * 3600
@@ -229,20 +231,6 @@ export function liveStats(db: Db, now = Math.floor(Date.now() / 1000)) {
      from card_batch where time > ?`,
     now - DAY,
   )
-  const month = all<TxnRow>(
-    db,
-    `select * from txn where height > ? and kind = ${TxKind.Burn}
-     and burn_addr not in (${card})`,
-    heightAt(db, now - 30 * DAY),
-    ...CARD_SETTLEMENT,
-  )
-  const reuse = one<{ n: number; r: number }>(
-    db,
-    `select count(*) as n, sum(k > 1) as r from (
-       select count(*) as k from txn where kind = ${TxKind.Burn}
-       and burn_addr not in (${card}) group by burn_addr)`,
-    ...CARD_SETTLEMENT,
-  )
   const stats: Omit<LiveStats, 'locked'> = {
     payyHeight: head?.height,
     payyTime: head?.time,
@@ -257,44 +245,76 @@ export function liveStats(db: Db, now = Math.floor(Date.now() / 1000)) {
         amount: batches?.s ?? 0,
       },
     },
-    matches: {
-      withdrawals: month.length,
-      matched: month.filter((b) => amountMatch(db, b)).length,
-    },
-    reuse: { recipients: reuse?.n ?? 0, reused: reuse?.r ?? 0 },
-    traces: {
-      week: traceSummary(db, heightAt(db, now - 7 * DAY)),
-      all: traceSummary(db, -1),
+    privacy: {
+      week: privacyStats(db, now - 7 * DAY),
+      all: allTime(db),
     },
   }
   return stats
 }
 
-function traceSummary(db: Db, fromHeight: number): LiveStats['traces']['all'] {
-  const raw = all<Parameters<typeof fromRow>[0] & { burn_amount: number }>(
-    db,
-    `select trace.*, txn.amount as burn_amount from trace
-     join txn on txn.hash = trace.burn_tx where trace.height > ?`,
-    fromHeight,
-  )
-  const rows = raw.map(fromRow)
-  const found = rows.filter((t) => t.depositors > 0)
-  return {
-    count: rows.length,
-    single: rows.filter((t) => t.origin === 'deposit').length,
-    // all of it provably from the deposits of one sender
-    attributed: raw.filter(
-      (r) => r.sender_min !== null && r.sender_min >= r.burn_amount,
-    ).length,
-    medianDepositors: median(found.map((t) => t.depositors)),
-    medianNearest: median(found.flatMap((t) => t.nearest ?? [])),
+/** The all-time figures change slowly and take a second or two */
+const ALL_TIME_TTL = 600
+let allTimeCache: { at: number; stats: PrivacyStats } | undefined
+
+function allTime(db: Db): PrivacyStats {
+  const now = Date.now() / 1000
+  if (!allTimeCache || now - allTimeCache.at > ALL_TIME_TTL) {
+    allTimeCache = { at: now, stats: privacyStats(db, 0) }
   }
+  return allTimeCache.stats
 }
 
-function median(xs: number[]): number | undefined {
-  if (xs.length === 0) return undefined
-  const sorted = [...xs].sort((a, b) => a - b)
-  return sorted[Math.floor(sorted.length / 2)]
+/**
+ * The headline figures since `since`, each a fact the public data proves:
+ *
+ * - withdrawals whose trace shows that all but under a cent of them came
+ *   from the deposits of one sender (src/graph/sources.ts);
+ * - recipients of withdrawals that received more than one withdrawal
+ *   (ever), which links those withdrawals to each other;
+ * - deposits bridged in through Across, and those whose sender on the other
+ *   chain is known (src/l1/bridges.ts).
+ */
+function privacyStats(db: Db, since: number): PrivacyStats {
+  const card = CARD_SETTLEMENT.map(() => '?').join(', ')
+  const w = one<{ n: number; traced: number; one: number | null }>(
+    db,
+    `select count(*) as n, count(t.burn_tx) as traced,
+       sum(t.sender_min >= x.amount - ${DUST}) as one
+     from txn x left join trace t on t.burn_tx = x.hash
+     where x.kind = ${TxKind.Burn} and x.time > ? and x.burn_addr not in (${card})`,
+    since,
+    ...CARD_SETTLEMENT,
+  )
+  const r = one<{ n: number; reused: number | null }>(
+    db,
+    `select count(*) as n, sum(k > 1) as reused from (
+       select (select count(*) from txn y
+               where y.kind = ${TxKind.Burn} and y.burn_addr = a.burn_addr) as k
+       from (select distinct burn_addr from txn
+             where kind = ${TxKind.Burn} and time > ? and burn_addr not in (${card})) a)`,
+    since,
+    ...CARD_SETTLEMENT,
+  )
+  const d = one<{ n: number; bridged: number | null; known: number | null }>(
+    db,
+    `select count(*) as n, sum(b.fill_tx is not null) as bridged,
+       sum(b.funder is not null) as known
+     from deposit d left join bridge_in b
+       on b.chain = d.chain and b.mint_hash = d.mint_hash
+     where d.time > ?`,
+    since,
+  )
+  return {
+    withdrawals: w?.n ?? 0,
+    traced: w?.traced ?? 0,
+    fromOneSender: w?.one ?? 0,
+    recipients: r?.n ?? 0,
+    reused: r?.reused ?? 0,
+    deposits: d?.n ?? 0,
+    bridged: d?.bridged ?? 0,
+    bridgedKnown: d?.known ?? 0,
+  }
 }
 
 /**
