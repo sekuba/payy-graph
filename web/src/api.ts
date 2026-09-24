@@ -41,9 +41,9 @@ export const api = {
   stats: () => get<LiveStats>('/api/stats'),
   /** an empty object while the sync has not computed them yet */
   keys: () => get<KeyStats | Record<string, never>>('/api/keys'),
-  live: (named: boolean) =>
+  live: (filter?: 'named' | 'linked') =>
     get<{ events: LiveEvent[]; names: Names }>(
-      `/api/live${named ? '?named=1' : ''}`,
+      `/api/live${filter ? `?${filter}=1` : ''}`,
     ),
   named: () => get<NamedAddress[]>('/api/named'),
   names: (addresses: string[]) => {

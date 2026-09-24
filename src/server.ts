@@ -117,11 +117,15 @@ export function serve(db: Db, config: Config): void {
     res.set('cache-control', 'public, max-age=30').json(stats)
   })
 
-  /** ?named=1: the newest deposits, withdrawals and card batches */
+  /** ?named=1 or ?linked=1: the newest deposits, withdrawals and card batches */
   app.get(
     '/api/live',
     cached(15, (req) =>
-      liveEvents(db, { named: req.query.named === '1', limit: LIVE_ROWS }),
+      liveEvents(db, {
+        named: req.query.named === '1',
+        linked: req.query.linked === '1',
+        limit: LIVE_ROWS,
+      }),
     ),
   )
 

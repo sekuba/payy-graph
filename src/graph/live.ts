@@ -28,13 +28,15 @@ export const MATCH_WINDOW = 7 * DAY
 /**
  * The newest deposits, withdrawals and card batches, newest first. With
  * `named`, only deposits and withdrawals whose address has a label or an
- * ENS or GNS name.
+ * ENS or GNS name. With `linked`, only withdrawals the data links to who
+ * paid in: traced to one sender, or matched by a deposit of exactly their
+ * amount in the week before.
  */
 export function liveEvents(
   db: Db,
-  options: { named: boolean; limit: number },
+  options: { named?: boolean; linked?: boolean; limit: number },
 ): { events: LiveEvent[]; names: Names } {
-  const { named, limit } = options
+  const { named = false, linked = false, limit } = options
   const card = CARD_SETTLEMENT.map(() => '?').join(', ')
   const labelled = [
     ...Object.keys(KNOWN_ADDRESSES),
@@ -43,31 +45,40 @@ export function liveEvents(
   const isNamed = (column: string) =>
     `(name.ens is not null or name.gns is not null or ${column} in (${labelled.map(() => '?').join(', ')}))`
 
+  const isLinked = `(exists (select 1 from trace where trace.burn_tx = txn.hash
+       and trace.sender is not null)
+     or (txn.amount % 1000000 <> 0 and exists (select 1 from deposit
+       where deposit.amount = txn.amount
+       and deposit.time between txn.time - ${MATCH_WINDOW} and txn.time)))`
   const burns = all<TxnRow>(
     db,
     `select txn.* from txn left join name on name.address = txn.burn_addr
      where txn.kind = ${TxKind.Burn} and txn.burn_addr not in (${card})
      ${named ? `and ${isNamed('txn.burn_addr')}` : ''}
+     ${linked ? `and ${isLinked}` : ''}
      order by txn.height desc limit ?`,
     ...CARD_SETTLEMENT,
     ...(named ? labelled : []),
     limit,
   )
-  const deposits = all<DepositRow>(
-    db,
-    `select deposit.* from deposit left join name on name.address = deposit.depositor
-     ${named ? `where ${isNamed('deposit.depositor')}` : ''}
-     order by deposit.time desc limit ?`,
-    ...(named ? labelled : []),
-    limit,
-  )
-  const batches = named
+  const deposits = linked
     ? []
-    : all<{ burn_tx: string }>(
+    : all<DepositRow>(
         db,
-        'select burn_tx from card_batch order by height desc limit ?',
-        Math.ceil(limit / 4),
+        `select deposit.* from deposit left join name on name.address = deposit.depositor
+         ${named ? `where ${isNamed('deposit.depositor')}` : ''}
+         order by deposit.time desc limit ?`,
+        ...(named ? labelled : []),
+        limit,
       )
+  const batches =
+    named || linked
+      ? []
+      : all<{ burn_tx: string }>(
+          db,
+          'select burn_tx from card_batch order by height desc limit ?',
+          Math.ceil(limit / 4),
+        )
 
   const mintOf = db.prepare(
     `select hash from txn where kind = ${TxKind.Mint} and msg_hash = ?`,

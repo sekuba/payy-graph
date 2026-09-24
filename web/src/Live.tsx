@@ -16,6 +16,11 @@ import { seedNames } from './names'
 const TABS = [
   ['all', 'all activity', 'newest deposits, withdrawals and card batches'],
   [
+    'linked',
+    'deanonymized',
+    'only withdrawals the data links to who paid in: traced to one sender, or matched by a deposit of exactly their amount in the week before',
+  ],
+  [
     'named',
     'named activity',
     'only addresses with a label or an ENS or GNS name',
@@ -38,8 +43,10 @@ const REFRESH_MS = 20_000
 export function Live({ onSelect }: { onSelect: (query: string) => void }) {
   const [stats, setStats] = useState<LiveStats>()
   const [events, setEvents] = useState<LiveEvent[]>()
-  const [tab, setTab] = useState<'all' | 'named' | 'addresses'>('all')
-  const named = tab === 'named'
+  const [tab, setTab] = useState<'all' | 'linked' | 'named' | 'addresses'>(
+    'all',
+  )
+  const filter = tab === 'named' || tab === 'linked' ? tab : undefined
   const [now, setNow] = useState(() => Date.now() / 1000)
 
   useEffect(() => {
@@ -51,7 +58,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
         .then((s) => !cancelled && setStats(s))
         .catch(() => undefined)
       api
-        .live(named)
+        .live(filter)
         .then((l) => {
           if (cancelled) return
           seedNames(l.names)
@@ -66,7 +73,7 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [named])
+  }, [filter])
 
   // relative times keep moving between refreshes
   useEffect(() => {
@@ -246,7 +253,9 @@ function IncidentNote({
       style={{ borderColor: 'var(--payy-line)' }}
     >
       <h2 className="font-semibold">
-        <span className="mark-payy">Withdrawn without a note</span>
+        <span className="mark-payy">
+          Exploit ({first ? slashDate(first.time) : ''})
+        </span>
       </h2>
       <p style={{ color: 'var(--ink-2)' }}>
         {n.count === 1 ? 'A withdrawal' : `${n.count} withdrawals`} on{' '}
@@ -814,6 +823,12 @@ function timeOf(e: LiveEvent): number {
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+/** Unix seconds as DD/MM/YYYY in UTC */
+function slashDate(unix: number): string {
+  const [y, m, d] = date(unix).slice(0, 10).split('-')
+  return `${d}/${m}/${y}`
 }
 
 /** 42s, 5m, 3h, 2d */
