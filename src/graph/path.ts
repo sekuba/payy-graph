@@ -110,6 +110,10 @@ export function walkPath(db: Db, burn: TxnRow, limit = PATH_LIMIT): Path {
       inputs.splice(0, 2, ...funds)
     }
     push(txn)
+    if (txn.kind === TxKind.Burn && inputs.length === 0) {
+      origin = { type: 'none' }
+      break
+    }
     if (txn.kind === TxKind.Mint && inputs.length === 0) {
       origin = {
         type: 'deposit',

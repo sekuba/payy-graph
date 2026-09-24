@@ -1,6 +1,12 @@
 import { all, type Db, getSync, one } from '../db'
 import type { BridgeRow } from '../l1/bridges'
-import { type ChainId, labelOf, ORIGIN_CHAINS, TxKind } from '../protocol'
+import {
+  type ChainId,
+  labelOf,
+  ORIGIN_CHAINS,
+  TxKind,
+  ZERO_COMMITMENT,
+} from '../protocol'
 import { type Bounds, inferAmounts } from './amounts'
 import {
   collect,
@@ -45,6 +51,9 @@ interface DepositRow {
 
 interface BurnedRow {
   tx: string
+  block: number
+  log_index: number
+  time: number
   substitute: number
 }
 
@@ -173,15 +182,20 @@ export function settlementChain(db: Db, height: number): ChainId | undefined {
  */
 export function withdrawalOf(db: Db, burn: TxnRow): Withdrawal {
   const chain = settlementChain(db, burn.height)
+  const recipient = burn.burn_addr ?? ''
   const events = all<BurnedRow>(
     db,
     'select * from burned where burn_hash = ? and chain = ? order by block, log_index',
     burn.msg_hash,
     chain ?? '',
   )
-  const fronted = events.find((e) => e.substitute === 1)
-  const settled = events.find((e) => e.substitute === 0)
-  const recipient = burn.burn_addr ?? ''
+  const { fronted, settled } =
+    burn.msg_hash === ZERO_COMMITMENT
+      ? zeroHashEvents(db, burn, chain)
+      : {
+          fronted: events.find((e) => e.substitute === 1),
+          settled: events.find((e) => e.substitute === 0),
+        }
   return {
     owner: ownerOf(db, recipient),
     burnHash: burn.msg_hash,
@@ -195,6 +209,54 @@ export function withdrawalOf(db: Db, burn: TxnRow): Withdrawal {
     settledTx: settled?.tx,
     substituted: fronted !== undefined,
   }
+}
+
+/**
+ * A withdrawal whose proof named no input note has burn hash zero, which
+ * every such withdrawal shares, so its events cannot be found by hash. They
+ * are paired by walking the zero-hash events in order: a payout to the
+ * recipient settles the earliest such burn not yet paid, a fronted payout
+ * goes to the earliest not yet paid, and a payout to the substitutor is the
+ * refund that settles the earliest fronted burn still open.
+ */
+function zeroHashEvents(
+  db: Db,
+  burn: TxnRow,
+  chain: ChainId | undefined,
+): { fronted?: BurnedRow; settled?: BurnedRow } {
+  const recipient = burn.burn_addr ?? ''
+  const siblings = all<TxnRow>(
+    db,
+    `select * from txn where kind = ${TxKind.Burn} and msg_hash = ? and burn_addr = ?
+     order by height, idx`,
+    burn.msg_hash,
+    recipient,
+  ).filter((s) => settlementChain(db, s.height) === chain)
+  const events = all<BurnedRow & { recipient: string }>(
+    db,
+    'select * from burned where burn_hash = ? and chain = ? order by block, log_index',
+    burn.msg_hash,
+    chain ?? '',
+  )
+  const fronted = new Map<string, BurnedRow>()
+  const settled = new Map<string, BurnedRow>()
+  const open = (s: TxnRow, e: BurnedRow) =>
+    s.time <= e.time && !settled.has(s.hash) && !fronted.has(s.hash)
+  for (const e of events) {
+    if (e.recipient === recipient) {
+      const target = siblings.find((s) => open(s, e))
+      if (!target) continue
+      if (e.substitute === 1) fronted.set(target.hash, e)
+      else settled.set(target.hash, e)
+    } else if (e.substitute === 0) {
+      // a refund of a fronted payout, to the substitutor
+      const target = siblings.find(
+        (s) => fronted.has(s.hash) && !settled.has(s.hash),
+      )
+      if (target) settled.set(target.hash, e)
+    }
+  }
+  return { fronted: fronted.get(burn.hash), settled: settled.get(burn.hash) }
 }
 
 /** A card batch by its burn tx, with how it was paid out on L1 */

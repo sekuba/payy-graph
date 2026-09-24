@@ -76,6 +76,9 @@ export function Live({ onSelect }: { onSelect: (query: string) => void }) {
 
   return (
     <>
+      {stats && stats.incident.noNote.count > 0 && (
+        <IncidentNote stats={stats} onSelect={onSelect} />
+      )}
       {stats && <Stats stats={stats} onKeys={() => onSelect('keys')} />}
       <section className="card p-3">
         <div className="mb-2 flex flex-wrap gap-1 text-xs">
@@ -212,6 +215,131 @@ function totals(t: { count: number; amount: number }): React.ReactNode {
       {t.count.toLocaleString('en-US')}{' '}
       <span style={{ color: 'var(--muted)' }}>· {whole(t.amount)} USDC</span>
     </>
+  )
+}
+
+/**
+ * Withdrawals that consumed no note, read off their public inputs: the
+ * burn hash is the first input commitment, and theirs is zero. Shown with
+ * their payouts and what the Rollup still holds.
+ */
+function IncidentNote({
+  stats,
+  onSelect,
+}: {
+  stats: LiveStats
+  onSelect: (query: string) => void
+}) {
+  const n = stats.incident.noNote
+  const m = stats.incident.malformed
+  const first = n.withdrawals[0]
+  const recipients = [...new Set(n.withdrawals.map((w) => w.recipient))]
+  const day = (t: number) => date(t).slice(0, 10)
+  const days = [...new Set(n.withdrawals.map((w) => day(w.time)))]
+  const paid = n.withdrawals.filter((w) => w.paidTx)
+  const payouts = [
+    ...new Set(paid.map((w) => `${w.chain}:${w.settledTx ?? w.paidTx}`)),
+  ]
+  return (
+    <section
+      className="card grid gap-2 p-3 text-sm"
+      style={{ borderColor: 'var(--negative)' }}
+    >
+      <h2 className="font-semibold" style={{ color: 'var(--negative)' }}>
+        Withdrawn without a note
+      </h2>
+      <p style={{ color: 'var(--ink-2)' }}>
+        {n.count === 1 ? 'A withdrawal' : `${n.count} withdrawals`} on{' '}
+        {days.join(' and ')} consumed no note. A burn names the note it destroys
+        as its first input commitment, and{' '}
+        {n.count === 1 ? 'this one names' : 'these name'} zero, so nothing in
+        the graph funded {n.count === 1 ? 'it' : 'them'}.{' '}
+        <span className="mono">{usdc(n.amount)} USDC</span> went to{' '}
+        {recipients.map((r, i) => (
+          <span key={r}>
+            {i > 0 && ', '}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => onSelect(r)}
+            >
+              <Address address={r} chain={first?.chain} />
+            </button>
+          </span>
+        ))}
+        {paid.length > 0 && (
+          <>
+            , paid out on {first?.chain ? CHAINS[first.chain].name : 'L1'} in{' '}
+            {payouts.map((p, i) => {
+              const [chain, tx] = p.split(':') as [ChainId, string]
+              return (
+                <span key={p}>
+                  {i > 0 && ', '}
+                  <a
+                    href={l1TxUrl(chain, tx)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mono underline"
+                  >
+                    {tx.slice(0, 10)}…
+                  </a>
+                </span>
+              )
+            })}
+          </>
+        )}
+        .{' '}
+        {Object.entries(stats.locked)
+          .filter(([, v]) => (v ?? 0) > 0)
+          .map(([chain, v]) => (
+            <span key={chain}>
+              The Rollup on {CHAINS[chain as ChainId].name} now holds{' '}
+              <span className="mono">{usdc(v ?? 0)} USDC</span>.{' '}
+            </span>
+          ))}
+      </p>
+      <ul className="text-xs" style={{ color: 'var(--ink-2)' }}>
+        {n.withdrawals.map((w) => (
+          <li key={w.txHash}>
+            <button
+              type="button"
+              className="mono underline"
+              onClick={() => onSelect(w.txHash)}
+              title={w.txHash}
+            >
+              {date(w.time)}
+            </button>{' '}
+            <span className="mono">{usdc(w.amount)} USDC</span>
+            <span style={{ color: 'var(--muted)' }}>
+              {w.substituted ? ' · paid early by Payy' : ''}
+              {w.settledTx ? ' · settled' : w.paidTx ? '' : ' · not paid yet'}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {m.count > 0 && (
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
+          Also on {[...new Set(m.txs.map((t) => day(t.time)))].join(', ')}:{' '}
+          {m.count} transactions whose kind is none of send, deposit or
+          withdrawal, with no notes and amounts of{' '}
+          {m.txs.map((t) => usdc(t.amount)).join(', ')} USDC in their public
+          inputs (
+          {m.txs.map((t, i) => (
+            <span key={t.hash}>
+              {i > 0 && ', '}
+              <button
+                type="button"
+                className="mono underline"
+                onClick={() => onSelect(t.hash)}
+              >
+                {t.hash.slice(0, 8)}…
+              </button>
+            </span>
+          ))}
+          ). Whether they relate to the above is not visible.
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -651,6 +779,17 @@ function Source({
         title="the history begins with a note from the 2025-09-12 migration of the previous Payy chain"
       >
         migrated balance
+      </span>
+    )
+  }
+  if (t.origin === 'none') {
+    return (
+      <span
+        className="chip"
+        style={{ color: 'var(--negative)', borderColor: 'var(--negative)' }}
+        title="the proof names no input note (both commitments zero): nothing funded this withdrawal"
+      >
+        no note
       </span>
     )
   }

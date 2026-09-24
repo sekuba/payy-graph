@@ -173,6 +173,7 @@ export function payyCodeUrl(ref: string): string {
 
 export const TREASURY_LABEL = 'Payy treasury'
 export const CARD_LABEL = 'Payy card settlement'
+export const EXPLOITER_LABEL = 'Payy exploiter 2026-09-24'
 
 /**
  * Addresses operated by Payy or its service providers, as observed onchain.
@@ -200,6 +201,10 @@ export const KNOWN_ADDRESSES: Record<string, string> = {
   // withdrawals and 27M USDC by 2026-09, each swept to a single address.
   '0x69ca5dec143b02499f83bb34b22a122a70e117ca': CARD_LABEL,
   '0x7b21b3e4382bf10b011637ba20b16f77fe53f6b8': CARD_LABEL,
+  // Received the three withdrawals of 2026-09-24 whose proofs named no
+  // input note (burn hash zero), 1.92M USDC in all, after a 5 USDC test
+  // withdrawal two days earlier.
+  '0xaa4985dbdabfaca344237d40f7e06c4a0bb57e70': EXPLOITER_LABEL,
 }
 
 /** Burn recipients of the card collector: Polygon until 2026-02-17, then Ethereum */

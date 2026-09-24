@@ -65,7 +65,10 @@ with a single deposit, the migration, or a merge of two histories; and, over
 its backward closure of up to 400 transactions, how many distinct addresses
 deposited the funds in it and how many transactions away the nearest deposit
 is. The page shown without a query lists the newest activity with these
-traces and their medians.
+traces and their medians. A withdrawal whose proof names no input note at
+all (its burn hash is zero) gets the origin `none`: nothing in the graph
+funded it. Three such withdrawals on 2026-09-24 took 1.92M USDC out of the
+Rollup, and the live page shows them with their payouts.
 
 A withdrawal's graph also gives each deposit in it a range: how much of the
 withdrawal can have come from it ([`src/graph/sources.ts`](src/graph/sources.ts)).

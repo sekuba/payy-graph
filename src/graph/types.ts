@@ -252,6 +252,8 @@ export type PathOrigin =
     }
   | { type: 'merge'; time: number }
   | { type: 'limit' }
+  /** the withdrawal consumed no note: both input commitments are zero */
+  | { type: 'none' }
 
 export interface Path {
   withdrawal: Withdrawal
@@ -408,6 +410,22 @@ export interface LiveStats {
   }
   /** what the public data reveals, over the last 7 days and overall */
   privacy: Record<'week' | 'all', PrivacyStats>
+  /** withdrawals that consumed no note, and malformed transactions (src/graph/live.ts) */
+  incident: Incident
+}
+
+/**
+ * Transactions the protocol should not have accepted: withdrawals whose
+ * proof names no input note (burn hash zero), and transactions whose kind
+ * is none of send, mint or burn
+ */
+export interface Incident {
+  noNote: { count: number; amount: number; withdrawals: Withdrawal[] }
+  malformed: {
+    count: number
+    amount: number
+    txs: { hash: string; time: number; amount: number }[]
+  }
 }
 
 /** The headline figures of the live view; definitions in src/graph/live.ts */

@@ -18,11 +18,10 @@ import { date, payyTxUrl, shortHex, usdc } from './format'
 
 /**
  * Whose keys spend the notes in users' wallets: Payy's sentence, what the
- * public graph shows happened to the notes Payy's server issued at the
- * migration, one line each for links, ramps and the card, and what the
- * data does not show. Every figure links to a transaction or a line of
- * Payy's published code, and each is marked as proved or suggested.
- * Definitions are in src/graph/keys.ts.
+ * chain shows happened to the notes Payy's server issued at the migration,
+ * one line each for links, ramps and the card, and what the data does not
+ * show. Every figure links to a transaction or a line of Payy's code, and
+ * each is marked as proved or suggested. Definitions in src/graph/keys.ts.
  */
 export function Keys({
   onSelect,
@@ -48,23 +47,22 @@ export function Keys({
       <Claim />
       {error && (
         <p style={{ color: 'var(--muted)' }}>
-          The figures are not computed yet; the sync fills them in.
+          The figures are not computed yet. The sync fills them in.
         </p>
       )}
       {stats && <Migration stats={stats} onSelect={onSelect} />}
       {stats && <Flows stats={stats} onSelect={onSelect} />}
       <NotShown />
       <p className="text-xs" style={{ color: 'var(--muted)' }}>
-        <Tag kind="proves" /> follows from the public chain data or Payy's
-        published code alone. <Tag kind="suggests" /> is consistent with them,
-        but another explanation is possible. Code links point at commit{' '}
-        <Code ref="" text={PAYY_COMMIT.slice(0, 7)} /> of Payy's repository.
+        <Tag kind="proves" /> follows from the chain data or Payy's code alone.{' '}
+        <Tag kind="suggests" /> fits them, other explanations possible. Code
+        links point at commit <Code ref="" text={PAYY_COMMIT.slice(0, 7)} />.
       </p>
     </div>
   )
 }
 
-/** Payy's sentence, and what kind of note it does not cover */
+/** Payy's sentence, and the kind of note it does not cover */
 function Claim() {
   return (
     <section className="card grid gap-2 p-3 text-sm">
@@ -73,9 +71,8 @@ function Claim() {
         className="border-l-2 pl-3"
         style={{ borderColor: 'var(--axis)', color: 'var(--ink-2)' }}
       >
-        “Payy is a non-custodial stablecoin wallet. This means the private key
-        that lets you control your crypto is stored on your device, accessible
-        by only you.”{' '}
+        “The private key that lets you control your crypto is stored on your
+        device, accessible by only you.”{' '}
         <a
           href={PAYY_FAQ_URL}
           target="_blank"
@@ -86,42 +83,36 @@ function Claim() {
         </a>
       </blockquote>
       <p style={{ color: 'var(--ink-2)' }}>
-        A Payy wallet holds two kinds of notes. The notes the app creates for
-        itself have keys it derives on the device from the wallet key{' '}
-        <Code ref={PAYY_CODE.derivedKey} /> <Code ref={PAYY_CODE.deriveFn} />.
-        Notes that arrive from Payy's server carry an explicit key the server
-        made or saw, which the app stores as <em>provided</em>{' '}
-        <Code ref={PAYY_CODE.keyKinds} />: the balances re-issued at the 2025
-        migration, payment links, ramp deposits and the card. The server keeps
-        notes with their private keys by owner{' '}
-        <Code ref={PAYY_CODE.notesTable} /> <Code ref={PAYY_CODE.ownerId} /> and
-        spends them by owner <Code ref={PAYY_CODE.assign} />{' '}
-        <Code ref={PAYY_CODE.transfer} />. The app's own spending code is not
-        published, so what became of such notes is read off the chain.
+        That holds for the notes the app makes for itself, whose keys it derives
+        on the device <Code ref={PAYY_CODE.derivedKey} />. Notes that arrive
+        from Payy's server, at the 2025 migration or through links, ramps and
+        the card, come with a key the server made or saw{' '}
+        <Code ref={PAYY_CODE.keyKinds} />. The server keeps such keys by owner{' '}
+        <Code ref={PAYY_CODE.notesTable} /> and spends by owner{' '}
+        <Code ref={PAYY_CODE.assign} />.
       </p>
     </section>
   )
 }
 
 const FIRST_LABEL: Record<FirstSpend, string> = {
-  unspent: 'never spent',
-  rekey: 'a send with one input and one output',
-  send: 'a payment with change',
+  unspent: 'nothing yet',
+  rekey: 'a 1-in/1-out send',
+  send: 'a payment',
   card: 'a card payment',
-  merge: 'a merge with another note',
+  merge: 'a merge',
   burn: 'a withdrawal',
   other: 'something else',
 }
 
 const FIRST_NOTE: Record<FirstSpend, string> = {
-  unspent: 'still spendable today with the key Payy generated, if Payy kept it',
+  unspent: 'still spendable with the key Payy generated',
   rekey:
-    'the shape of the wallet moving the balance to a key of its own; also the shape Payy uses before its own withdrawals',
-  send: 'the note paid someone and kept the change, under the key Payy generated',
-  card: 'the note was sent to the card collector, whose merges withdraw in batches, under the key Payy generated',
-  merge:
-    'the note was consolidated with another one, under the key Payy generated',
-  burn: 'the note was withdrawn to L1, under the key Payy generated',
+    'the shape of a wallet moving the balance to its own key, and of the sends before Payy’s own withdrawals',
+  send: 'paid someone and kept the change, under the key Payy generated',
+  card: 'sent to the card collector, under the key Payy generated',
+  merge: 'consolidated with another note, under the key Payy generated',
+  burn: 'withdrawn to L1, under the key Payy generated',
   other: '',
 }
 
@@ -135,43 +126,24 @@ function Migration({
 }) {
   const m = stats.migration
   const rows = (
-    ['unspent', 'rekey', 'send', 'card', 'merge', 'burn', 'other'] as const
+    ['unspent', 'rekey', 'send', 'merge', 'card', 'burn', 'other'] as const
   ).filter((f) => m.first[f].count > 0)
   const pct = (n: number) => `${Math.round((100 * n) / m.payouts)}%`
-  const direct =
-    m.first.send.count +
-    m.first.card.count +
-    m.first.merge.count +
-    m.first.burn.count
-  const directSpent = [m.first.send, m.first.card, m.first.merge, m.first.burn]
-  const directMin = directSpent.reduce((a, s) => a + s.min, 0)
+  const direct = [m.first.send, m.first.card, m.first.merge, m.first.burn]
+  const directCount = direct.reduce((a, s) => a + s.count, 0)
+  const directMin = direct.reduce((a, s) => a + s.min, 0)
   const pending = m.payouts - m.classified
   return (
     <section className="card grid gap-3 p-3 text-sm">
-      <h3 className="font-semibold">
-        The migration: {m.payouts.toLocaleString('en-US')} notes issued under
-        keys Payy generated
-      </h3>
+      <h3 className="font-semibold">Custodial migration</h3>
       <p style={{ color: 'var(--ink-2)' }}>
-        On {date(m.start).slice(0, 10)} Payy moved every balance of its previous
-        chain to this one. The app sent the server each old note with its
-        private key <Code ref={PAYY_CODE.migrateRequest} />{' '}
-        <Code ref={PAYY_CODE.migrateClient} />, and the server answered with new
-        notes and their private keys <Code ref={PAYY_CODE.migrateResponse} />:
-        keys the server held before the app did, drawn at random on its side{' '}
-        <Code ref={PAYY_CODE.randomKey} /> <Tag kind="proves" />. A Payy wallet
-        paid the notes out from {usdc(m.deposited)} USDC of treasury deposits
-        between {date(m.start)} and {date(m.end)} UTC, so the{' '}
-        {m.payouts.toLocaleString('en-US')} notes held that much together, less
-        the change Payy kept at the end of {m.change} payout chains{' '}
-        <Tag kind="proves" />. What each note held is hidden; the graph pins it
-        down only where the note was later withdrawn in full.
-      </p>
-      <p style={{ color: 'var(--ink-2)' }}>
-        A wallet that wanted these notes out of Payy's reach would spend each to
-        a key of its own as soon as it saw it: a send with one input and one
-        output, minutes after issue. What the chain shows instead, for the first
-        spend of each note:
+        On {date(m.start).slice(0, 10)} the app sent Payy's server every old
+        note with its private key <Code ref={PAYY_CODE.migrateRequest} />, and
+        the server issued {m.payouts.toLocaleString('en-US')} new notes with
+        keys of its own making <Code ref={PAYY_CODE.migrateResponse} />{' '}
+        <Code ref={PAYY_CODE.randomKey} />, {usdc(m.deposited)} USDC together{' '}
+        <Tag kind="proves" />. A wallet wanting them out of Payy's reach would
+        re-key each at once with a 1-in/1-out send. What first spent each note:
       </p>
       <table className="stack w-full text-left text-xs">
         <thead style={{ color: 'var(--muted)' }}>
@@ -179,8 +151,6 @@ function Migration({
             <th className="py-1 font-normal">First spent by</th>
             <th className="py-1 text-right font-normal">Notes</th>
             <th className="py-1 text-right font-normal">Median wait</th>
-            <th className="py-1 text-right font-normal">Within an hour</th>
-            <th className="py-1 text-right font-normal">Held, where known</th>
             <th className="py-1 font-normal">Example</th>
           </tr>
         </thead>
@@ -198,7 +168,7 @@ function Migration({
             <tr className="hairline border-t" style={{ color: 'var(--muted)' }}>
               <td className="py-1">not classified yet</td>
               <td className="mono py-1 text-right">{pending}</td>
-              <td colSpan={4} />
+              <td colSpan={2} />
             </tr>
           )}
         </tbody>
@@ -206,50 +176,26 @@ function Migration({
       <ul className="grid gap-1" style={{ color: 'var(--ink-2)' }}>
         <li>
           <Tag kind="proves" /> {m.first.unspent.count.toLocaleString('en-US')}{' '}
-          notes ({pct(m.first.unspent.count)}) have never been spent,{' '}
-          {days(m.first.unspent.medianHeld)} after issue. Whoever holds the key
-          Payy generated for them can spend them; nothing else can.
+          notes ({pct(m.first.unspent.count)}) are still unspent after{' '}
+          {days(m.first.unspent.medianHeld)}. Only the key Payy generated can
+          spend them.
         </li>
         <li>
-          <Tag kind="proves" /> {direct.toLocaleString('en-US')} notes (
-          {pct(direct)}) were spent straight from the key Payy generated: a
-          payment, a merge, a card charge or a withdrawal took the note as its
-          input, with median waits from{' '}
-          {days(Math.min(...directSpent.map((s) => s.medianHeld)))} to{' '}
-          {days(Math.max(...directSpent.map((s) => s.medianHeld)))} after issue.
-          Together they held at least {cents(directMin)} USDC.
+          <Tag kind="proves" /> {directCount.toLocaleString('en-US')} notes (
+          {pct(directCount)}) were spent straight from that key. They held at
+          least {cents(directMin)} USDC.
         </li>
         <li>
           <Tag kind="suggests" /> {m.first.rekey.count.toLocaleString('en-US')}{' '}
-          notes ({pct(m.first.rekey.count)}) were first spent by a send with one
-          input and one output, the shape of a wallet moving the balance to a
-          key of its own. Only {m.first.rekey.withinHour} did so within an hour
-          of issue and {m.first.rekey.withinDay} within a day; the median waited{' '}
-          {days(m.first.rekey.medianHeld)}. The same shape precedes Payy's own
-          withdrawals (below), so the chain does not tell who made these.
+          notes ({pct(m.first.rekey.count)}) were first moved by a 1-in/1-out
+          send, the shape of a re-key. Only {m.first.rekey.withinHour} within an
+          hour of issue and {m.first.rekey.withinDay} within a day. Payy's own
+          withdrawals show the same shape (below).
         </li>
         <li>
-          <Tag kind="proves" /> {m.first.card.count.toLocaleString('en-US')}{' '}
-          notes paid the card straight from the migrated note, a median of{' '}
-          {days(m.first.card.medianHeld)} after issue; the longest waited{' '}
-          {days(m.first.card.maxHeld)}. <Tag kind="suggests" /> Card charges
-          follow the merchant's schedule (the recurring ones fall within seconds
-          of the same minute each month), so the app need not have been open
-          when the note was spent.
-        </li>
-        <li>
-          <Tag kind="proves" /> {m.first.burn.count.toLocaleString('en-US')}{' '}
-          notes were withdrawn to L1 straight from the migrated note, a median
-          of {days(m.first.burn.medianHeld)} after issue, {usdc(m.burned)} USDC
-          in all.
-        </li>
-        <li>
-          <Tag kind="proves" /> In all, {m.spent.withinHour} of the{' '}
-          {m.spent.count.toLocaleString('en-US')} notes spent so far were spent
-          within an hour of issue and {m.spent.withinDay} within a day; the
-          median first spend came {days(m.spent.medianHeld)} after issue. Every
-          note sat under a key Payy generated until then, and{' '}
-          {m.first.unspent.count.toLocaleString('en-US')} still do.
+          <Tag kind="suggests" /> Card charges run on the merchant's schedule,
+          so the app need not have been open. The longest waited{' '}
+          {days(m.first.card.maxHeld)}.
         </li>
       </ul>
     </section>
@@ -276,31 +222,14 @@ function HeldRow({
         <span style={{ color: 'var(--muted)' }}>· {share}</span>
       </td>
       <td className="mono py-1 text-right" data-label="median wait">
-        {first === 'unspent'
-          ? `${days(s.medianHeld)} so far`
-          : days(s.medianHeld)}
+        {days(s.medianHeld)}
+        {first === 'unspent' ? ' so far' : ''}
       </td>
-      <td className="mono py-1 text-right" data-label="within an hour">
-        {first === 'unspent' ? '' : s.withinHour}
-      </td>
-      <td className="mono py-1 text-right" data-label="held">
-        {held(s)}
-      </td>
-      <td className="py-1" data-label="example">
+      <td className="wide py-1" data-label="example">
         {example && <Example note={example} onSelect={onSelect} />}
       </td>
     </tr>
   )
-}
-
-/** What the notes of one kind held: exact where known, else the lower bound */
-function held(s: HeldStats): string {
-  if (s.count === 0) return ''
-  if (s.exact === s.count) return `${cents(s.exactSum)} USDC`
-  if (s.exact > 0) {
-    return `${s.exact} exact: ${cents(s.exactSum)} · all ≥ ${cents(s.min)} USDC`
-  }
-  return s.min > 0 ? `≥ ${cents(s.min)} USDC` : 'hidden'
 }
 
 /** One migrated note: the transaction that spent it, or the one that issued it */
@@ -319,11 +248,11 @@ function Example({
         ? `≥ ${usdc(note.min)} USDC`
         : undefined
   return (
-    <span className="mono whitespace-nowrap">
+    <span className="mono">
       <button
         type="button"
         className="underline"
-        title={`${note.spentTx ? 'spent by' : 'issued by'} ${tx}; click to open it here`}
+        title={`${note.spentTx ? 'spent by' : 'issued by'} ${tx}. Click to open it here`}
         onClick={() => onSelect(tx)}
       >
         {shortHex(tx, 4)}
@@ -352,7 +281,7 @@ function Example({
   )
 }
 
-/** Links, ramps and the card, one line each, and the sweeps */
+/** Links, ramps and the card, one line each, then the sweeps */
 function Flows({
   stats,
   onSelect,
@@ -365,59 +294,44 @@ function Flows({
   const example = s.examples[0]
   return (
     <section className="card grid gap-2 p-3 text-sm">
-      <h3 className="font-semibold">Links, ramps and the card</h3>
+      <h3 className="font-semibold">Links, ramps, card</h3>
       <ul className="grid gap-1" style={{ color: 'var(--ink-2)' }}>
         <li>
-          <Tag kind="proves" /> <strong>Links.</strong> A payment link carries
-          the note's private key <Code ref={PAYY_CODE.linkKey} />, and the app
-          registers such notes with the server, key included{' '}
-          <Code ref={PAYY_CODE.createNote} />. The recipient's app spends a
-          received note to a key of its own, a claim{' '}
-          <Code ref={PAYY_CODE.claim} />.
+          <Tag kind="proves" /> <strong>Links.</strong> The link carries the
+          note's private key <Code ref={PAYY_CODE.linkKey} />, the app registers
+          it with the server <Code ref={PAYY_CODE.createNote} />, and the
+          recipient re-keys it with a claim <Code ref={PAYY_CODE.claim} />.
         </li>
         <li>
-          <Tag kind="proves" /> <strong>Ramps.</strong> A ramp deposit is
-          delivered to the app as a private key <Code ref={PAYY_CODE.rampKey} />
-          .
+          <Tag kind="proves" /> <strong>Ramps.</strong> A ramp deposit arrives
+          as a private key <Code ref={PAYY_CODE.rampKey} />.
         </li>
         <li>
-          <Tag kind="proves" /> <strong>Card.</strong> A card payment is a note
-          sent to Payy's collector, which merges and withdraws the payments in
-          batches; that is custodial by design and out of scope here, except
-          that the card charges from migrated notes above were made with the key
-          Payy's server held.
+          <Tag kind="proves" /> <strong>Card.</strong> Payments go to Payy's
+          collector. Custodial by design.
         </li>
         <li>
           <Tag kind="suggests" /> <strong>Sweeps.</strong>{' '}
-          {s.count.toLocaleString('en-US')} transactions up to height{' '}
-          {s.height.toLocaleString('en-US')} consume a note at least a day old
-          (median {days(s.medianAge)}) together with one made in the ten minutes
-          before, the two from separate histories;{' '}
-          {s.withDeposit.toLocaleString('en-US')} of the fresh notes are
-          deposits, and {s.intoBurn.toLocaleString('en-US')} of the merges reach
-          a withdrawal within a few transactions. In{' '}
-          {s.small.toLocaleString('en-US')} the graph bounds the old note to at
-          most one USDC: {cents(s.smallSum)} USDC of leftovers in all
-          {s.open > 0
-            ? `; ${s.open.toLocaleString('en-US')} old notes have no upper bound`
-            : ''}
-          . A wallet consolidating its own change looks the same, so this is
-          counted, not attributed.
+          {s.count.toLocaleString('en-US')} merges join a note over a day old
+          with one made minutes before, from separate histories. In{' '}
+          {s.small.toLocaleString('en-US')} the old note is at most one USDC,{' '}
+          {cents(s.smallSum)} USDC in all. A wallet tidying its own change looks
+          the same.
           {example && (
             <>
               {' '}
-              Newest small one:{' '}
-              <SweepExample sweep={example} onSelect={onSelect} />
+              Newest: <SweepExample sweep={example} onSelect={onSelect} />
             </>
           )}
         </li>
         {b.computedAt > 0 && (
           <li>
-            <Tag kind="suggests" /> <strong>Withdrawals without change.</strong>{' '}
-            <Shape s={b.noChange} what="burned a whole note" />{' '}
-            <Shape s={b.withChange} what="kept change" /> Which side makes these
-            sends is not visible; a wallet withdrawing its own note has no need
-            to move it to another key first.
+            <Tag kind="suggests" /> <strong>Re-key before withdrawal.</strong>{' '}
+            <Shape s={b.noChange} what="burned a whole note" /> Of the{' '}
+            {b.withChange.count.toLocaleString('en-US')} that kept change,{' '}
+            {b.withChange.afterRekey.toLocaleString('en-US')} (
+            {pct(b.withChange)}%). A wallet withdrawing its own note has no need
+            to move it first.
           </li>
         )}
       </ul>
@@ -426,16 +340,21 @@ function Flows({
 }
 
 function Shape({ s, what }: { s: BurnShape; what: string }) {
-  const share = s.count ? (100 * s.afterRekey) / s.count : 0
-  const pct = share >= 1 || share === 0 ? Math.round(share) : share.toFixed(1)
   return (
     <>
       Of the {s.count.toLocaleString('en-US')} withdrawals that {what},{' '}
-      {s.afterRekey.toLocaleString('en-US')} ({pct}%) burned a note that a
-      one-input, one-output send had made, a median of {duration(s.medianGap)}{' '}
-      before ({s.within10min.toLocaleString('en-US')} within ten minutes).
+      {s.afterRekey.toLocaleString('en-US')} ({pct(s)}%) burned a note made by a
+      1-in/1-out send a median of {duration(s.medianGap)} earlier.
     </>
   )
+}
+
+/** The share of a shape's withdrawals that followed a 1-in/1-out send */
+function pct(s: BurnShape): string {
+  const share = s.count ? (100 * s.afterRekey) / s.count : 0
+  return share >= 1 || share === 0
+    ? String(Math.round(share))
+    : share.toFixed(1)
 }
 
 function SweepExample({
@@ -453,11 +372,11 @@ function SweepExample({
         ? `≤ ${usdc(o.max)}`
         : `≥ ${usdc(o.min)}`
   return (
-    <span className="mono whitespace-nowrap">
+    <span className="mono">
       <button
         type="button"
         className="underline"
-        title={`${sweep.tx}; click to open it here`}
+        title={`${sweep.tx}. Click to open it here`}
         onClick={() => onSelect(sweep.tx)}
       >
         {shortHex(sweep.tx, 4)}
@@ -483,17 +402,13 @@ function SweepExample({
 function NotShown() {
   return (
     <section className="card grid gap-2 p-3 text-sm">
-      <h3 className="font-semibold">What this does not show</h3>
+      <h3 className="font-semibold">Not shown</h3>
       <p style={{ color: 'var(--ink-2)' }}>
-        A plain deposit, sends between current wallets and a withdrawal keep the
-        keys on the device as far as the published code and the chain show: the
-        app derives the keys of its own notes{' '}
-        <Code ref={PAYY_CODE.derivedKey} /> and moves a received note to a key
-        of its own with a claim <Code ref={PAYY_CODE.claim} />. Nothing here
-        says otherwise. The finding is narrower: part of an ordinary balance
-        consists of notes whose keys Payy's server generated or received, and
-        for the migrated notes the chain shows those keys were still the ones
-        spending, months later.
+        Deposits, sends between current wallets and withdrawals keep the keys on
+        the device as far as the code and the chain show{' '}
+        <Code ref={PAYY_CODE.derivedKey} /> <Code ref={PAYY_CODE.claim} />. The
+        point is narrower: part of an ordinary balance is notes whose keys
+        Payy's server held.
       </p>
     </section>
   )
@@ -506,7 +421,7 @@ function Tag({ kind }: { kind: 'proves' | 'suggests' }) {
       title={
         kind === 'proves'
           ? 'follows from the public chain data or the published code alone'
-          : 'consistent with the data, but another explanation is possible'
+          : 'fits the data, but another explanation is possible'
       }
     >
       {kind}

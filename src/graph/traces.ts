@@ -30,14 +30,16 @@ const VERSION_KEY = 'traces_version'
  * through. 3: the walk goes ten times further back. 4: the sender behind
  * most of the withdrawal is stored, for every withdrawal. 5: senders are
  * owners (src/graph/identity.ts); traced again once the funding of every
- * deposit has been looked up, so that the owners are complete.
+ * deposit has been looked up, so that the owners are complete. 6: a
+ * withdrawal that consumed no note has its own origin.
  */
-const VERSION = 5
+const VERSION = 6
 const RETRACE: Record<number, string[]> = {
   2: ['merge', 'limit'],
   3: ['limit'],
   4: ['deposit', 'merge', 'limit', 'migration'],
   5: ['deposit', 'merge', 'limit', 'migration'],
+  6: ['limit'],
 }
 /** Versions that wait for the funding backfill (src/l1/bridges.ts) */
 const NEEDS_FUNDING = 5

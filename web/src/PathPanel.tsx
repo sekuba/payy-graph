@@ -129,6 +129,12 @@ function Link({ path }: { path: Path }) {
         </Box>
       ),
     )
+  } else if (o.type === 'none') {
+    sources.push(
+      <Box key="n" color="negative" title="No note" amount="nothing" unit="">
+        the proof names no input note: both commitments are zero
+      </Box>,
+    )
   } else if (o.type === 'migration' && path.sources.length === 0) {
     start = o.time
     sources.push(
@@ -603,6 +609,9 @@ function contextOf(path: Path): React.ReactNode {
   }
   if (o.type === 'limit') {
     return `The history is longer than ${path.hops.length} transactions and is shown from ${date(path.hops[0]?.time ?? 0)}.`
+  }
+  if (o.type === 'none') {
+    return 'This withdrawal consumed no note. A burn names the note it destroys as its first input commitment, and this one names zero. No deposit, migrated balance or earlier transaction funded it, so the amount left the Rollup contract without anything backing it.'
   }
   return undefined
 }

@@ -13,6 +13,7 @@ import { bridgeOf, cardBatchOf, withdrawalOf } from './queries'
 import { traceOf } from './traces'
 import type {
   AmountMatch,
+  Incident,
   LiveEvent,
   LiveStats,
   NamedAddress,
@@ -249,8 +250,45 @@ export function liveStats(db: Db, now = Math.floor(Date.now() / 1000)) {
       week: privacyStats(db, now - 7 * DAY),
       all: allTime(db),
     },
+    incident: incident(db),
   }
   return stats
+}
+
+/**
+ * What the protocol should not have accepted: withdrawals whose proof
+ * names no input note (their burn hash, defined as the first input
+ * commitment, is zero), and transactions of a kind that is none of send,
+ * mint or burn. Both are read off the public inputs alone.
+ */
+export function incident(db: Db): Incident {
+  const noNote = all<TxnRow>(
+    db,
+    `select * from txn t where kind = ${TxKind.Burn}
+     and not exists (select 1 from note where spent_tx = t.hash)
+     order by height, idx`,
+  )
+  const malformed = all<TxnRow>(
+    db,
+    `select * from txn where kind not in (${TxKind.Send}, ${TxKind.Mint}, ${TxKind.Burn})
+     order by height, idx`,
+  )
+  return {
+    noNote: {
+      count: noNote.length,
+      amount: noNote.reduce((a, t) => a + t.amount, 0),
+      withdrawals: noNote.map((t) => withdrawalOf(db, t)),
+    },
+    malformed: {
+      count: malformed.length,
+      amount: malformed.reduce((a, t) => a + t.amount, 0),
+      txs: malformed.map((t) => ({
+        hash: t.hash,
+        time: t.time,
+        amount: t.amount,
+      })),
+    },
+  }
 }
 
 /** The all-time figures change slowly and take a second or two */
