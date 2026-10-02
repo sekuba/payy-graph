@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Indexes the public spend graph of the Payy network and shows which deposits fund a withdrawal.",
-  "license": "MIT",
+  "license": "Unlicense",
   "packageManager": "pnpm@12.5.1",
   "engines": {
     "node": ">=22.13.0"

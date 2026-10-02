@@ -1,8 +1,7 @@
 # payy-graph
 
-By [L2BEAT](https://l2beat.com). Everything shown is derived from onchain
-state and the public Payy node; nothing is inferred beyond what the data
-supports.
+Everything shown is derived from onchain state and the public Payy node;
+nothing is inferred beyond what the data supports.
 
 Indexes the public spend graph of the [Payy](https://payy.network) network and
 shows, for any withdrawal, the deposits that funded it.
